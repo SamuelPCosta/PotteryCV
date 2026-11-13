@@ -1,0 +1,38 @@
+# PotteryCV — parâmetros (valores padrão em pottery/config.py; aqui só o que você quiser mudar)
+
+[camera]
+index = 0
+backend = "msmf"     # msmf entregou 31 FPS em 720p; dshow só 8
+mirror = true
+
+[vase]
+r0 = 0.06            # raio inicial (m)
+h0 = 0.15            # altura inicial (m)
+alpha = 0.6          # plasticidade por passagem (1 = corte rígido)
+side_gain = 0.4      # apertar dos lados -> sobe (0 = altura fixa, 1 = conserva volume). Também na interface.
+top_rate = 0.5       # rapidez do achatamento ao empurrar o topo (engorda conservando o volume)
+
+[hand]
+L_real_m = 0.095     # pulso -> nó do dedo médio (m)
+smoothing = true
+depth_norm = true
+
+[speed]
+# cabeça um pouco para cima -> para; para baixo -> vai acelerando; neutra -> mantém
+accel_deg = 8.0      # para baixo a partir daqui: acelera
+brake_deg = 4.0      # para cima a partir daqui: freia até parar
+dwell_s = 0.3
+accel_rpm_s = 50.0
+max_rpm = 90.0
+min_rpm = 2.0        # o torno nunca fica abaixo disso
+pitch_sign = 1.0     # troque para -1 se olhar para baixo estiver freando
+
+[calib]
+countdown_s = 3.0    # "capturando em 3.. 2.. 1"
+
+[seg]
+extractor = "landmarks"   # landmarks | mobilesam
+
+[net]
+enabled = true
+targets = ["127.0.0.1:9000", "127.0.0.1:9002"]   # Blender, viewer

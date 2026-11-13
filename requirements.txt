@@ -1,0 +1,9 @@
+numpy
+mediapipe          # traz opencv-contrib-python (não instale opencv-python junto)
+PySide6
+pyqtgraph
+PyOpenGL
+pytest
+# M7 (segmentação, GPU) — torch com CUDA vem do índice do PyTorch:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu130
+# ultralytics
