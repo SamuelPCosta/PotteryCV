@@ -1,13 +1,9 @@
-"""PotteryCV — receptor para o Blender 5.2 (NÃO integrado: abra no Text Editor e rode com "Run Script").
-
+"""
 Rodar o script de novo LIGA/DESLIGA o receptor.
 - Cria/valida o objeto `PotteryVase`: malha de DUAS paredes (externa + interna), borda e fundos fechados.
 - Atributos de ponto: `radius` (atualizado), `theta`, `zn` (0..1), `wall` (0 externa, 1 interna).
 - Propriedade do objeto `pottery_height` (H em m) — ligue o input Height do Geometry Nodes a ela por driver.
 - Escuta UDP :9000 (protocolo specs/protocol.md), aplica a rotação Z = φ e devolve ECHO para :9001.
-
-Linhas marcadas com  # VERIFICAR  usam API do Blender que deve ser conferida na documentação oficial do 5.2.
-Só usa stdlib + NumPy (embutido no Blender — VERIFICAR).
 """
 import math
 import socket
@@ -18,14 +14,14 @@ import numpy as np
 
 try:
     import bpy  # noqa
-except ImportError:      # permite testar a lógica fora do Blender
+except ImportError:
     bpy = None
 
-# ---------------------------------------------------------------- configuração
+# ---------------------------------------------------------------- configuracao
 PORT = 9000
-ECHO_TO = ("127.0.0.1", 9001)      # None para desligar o eco
+ECHO_TO = ("127.0.0.1", 9001)
 OBJ_NAME = "PotteryVase"
-N_THETA, N_Z = 128, 128            # tem que bater com o Python
+N_THETA, N_Z = 96, 64            # tem que bater com o Python
 TIMER_S = 1 / 60
 R0_INIT = 0.06
 
@@ -34,7 +30,6 @@ HDR = struct.Struct("<4sBBHIIQQHHHHBBHffffI")   # 64 B
 ECHO = struct.Struct("<4sBBHIIQQQQ")             # 48 B
 
 
-# ---------------------------------------------------------------- lógica pura (testável sem Blender)
 def decode_state(data: bytes):
     if len(data) < HDR.size or data[:4] != MAGIC or data[4] != 1 or data[5] != 1:
         return None
@@ -199,25 +194,24 @@ def _timer():
         return None
     try:
         rx.tick()
-    except Exception as e:  # não derruba o timer por um pacote ruim
+    except Exception as e:
         print("[pottery] erro:", e)
     return TIMER_S
 
-
 def toggle():
-    ns = bpy.app.driver_namespace                                                  # VERIFICAR
+    ns = bpy.app.driver_namespace
     rx = ns.get("pottery_rx")
     if rx is not None:
         rx.close()
         del ns["pottery_rx"]
-        if bpy.app.timers.is_registered(_timer):                                   # VERIFICAR
+        if bpy.app.timers.is_registered(_timer):
             bpy.app.timers.unregister(_timer)
         print("[pottery] receptor PARADO")
         return
     for k in [k for k in ns.keys() if k == "pottery_rx"]:
         del ns[k]
     ns["pottery_rx"] = _Rx()
-    bpy.app.timers.register(_timer, first_interval=0.0, persistent=True)           # VERIFICAR
+    bpy.app.timers.register(_timer, first_interval=0.0, persistent=True)
     print("[pottery] receptor LIGADO (rode o script de novo para parar)")
 
 

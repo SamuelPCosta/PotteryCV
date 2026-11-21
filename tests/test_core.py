@@ -12,6 +12,7 @@ from pottery.tracking import HeadObs
 from pottery.vase import EDGE_THETA, EdgeContact, TopContact, Vase, sweep
 
 N = 128
+NZ = Config().vase.n_z   # bins em z da config atual
 
 
 # ---------------------------------------------------------------- varredura (CA-04)
@@ -38,7 +39,7 @@ def test_sweep_seam_and_full_turn():
     assert len(cols) == 1
 
 
-def _flat_profile(r, n_z=N, lo=0.2, hi=0.8):
+def _flat_profile(r, n_z=NZ, lo=0.2, hi=0.8):
     cover = np.zeros(n_z, bool)
     cover[int(lo * n_z):int(hi * n_z)] = True
     rn = np.where(cover, r, np.nan)
@@ -74,7 +75,7 @@ def test_dent_never_comes_back():
     for k in range(30, 60):
         v.apply("R", k * 0.3, (k + 1) * 0.3, _flat_profile(0.04, lo=0.6, hi=0.7), _flat_profile(0.04, lo=0.6, hi=0.7), "PUSH")
     assert (v.R <= dent + 1e-7).all()
-    assert v.R[:, int(0.25 * N)].mean() < cfg.r0 - 0.01      # o sulco continua lá
+    assert v.R[:, int(0.25 * NZ)].mean() < cfg.r0 - 0.01      # o sulco continua lá
 
 
 def test_side_gain_controls_height():  # CA-06 + slider
@@ -124,7 +125,7 @@ def test_top_contact_only_from_above():
 # ---------------------------------------------------------------- contato (CA-05)
 def test_contact_hysteresis_outside_only():
     c = EdgeContact(Config().contact)
-    wall = np.full(N, 0.06)
+    wall = np.full(NZ, 0.06)
     p_far = _flat_profile(0.10)
     assert c.update(p_far, 1, wall, 0.0) == "NONE"
     assert c.update(_flat_profile(0.059), 1, wall, 0.03) == "PUSH"

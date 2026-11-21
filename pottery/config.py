@@ -18,8 +18,8 @@ class CameraCfg:
 
 @dataclass
 class VaseCfg:
-    n_theta: int = 128
-    n_z: int = 128
+    n_theta: int = 96
+    n_z: int = 64
     r0: float = 0.06          # raio inicial (m)
     h0: float = 0.15          # altura inicial (m)
     r_min: float = 0.008
