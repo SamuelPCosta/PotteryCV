@@ -398,6 +398,35 @@ class Pipeline(QThread):
         tw = cv2.getTextSize(status, F, 0.8, 2)[0][0]
         cv2.putText(img, status, (W_img - tw - 16, bot + 40), F, 0.8, (255, 255, 255), 2, cv2.LINE_AA)
 
+    def _draw_topology_lines(self, img, n=12, color=(25, 55, 110)):
+        """Linhas de topologia: verticais presas ao barro (θ fixo), correm pela frente do vaso conforme ele gira."""
+        prof, v = self.prof, self.vase
+        Hh, Ww = img.shape[:2]
+        zj = np.linspace(0, 1, v.n_z)
+        lines = []
+        for m in range(n):
+            i = (m * v.n_theta) // n
+            tw = 2 * math.pi * i / v.n_theta + v.phi        # ângulo de mundo da coluna
+            w = -math.sin(tw)                               # câmera em −Y: frente = sin < 0
+            if w < 0.05:
+                continue
+            u = prof.x_to_u(v.R[i] * math.cos(tw))
+            vv = prof.z_to_v(v.Hc[i] * zj)
+            lines.append((np.stack([u, vv], 1).astype(np.int32), int(255 * w ** 0.7)))
+        if not lines:
+            return
+        allp = np.concatenate([p for p, _ in lines])                 # só a caixa do vaso (barato)
+        x0, y0 = np.maximum(allp.min(0) - 3, 0)
+        x1, y1 = np.minimum(allp.max(0) + 4, (Ww, Hh))
+        if x1 <= x0 or y1 <= y0:
+            return
+        mask = np.zeros((y1 - y0, x1 - x0), np.uint8)
+        for p, val in lines:
+            cv2.polylines(mask, [p - (x0, y0)], False, val, 2, cv2.LINE_AA)
+        a = mask[..., None].astype(np.float32) * (0.85 / 255)
+        roi = img[y0:y1, x0:x1]
+        roi[:] = (roi * (1 - a) + np.array(color, np.float32) * a).astype(np.uint8)
+
     def _draw(self, img, edges, profiles, masks):
         prof, v = self.prof, self.vase
         z = np.linspace(0, v.H, v.n_z)                       # grade global (perfil das mãos)
@@ -414,6 +443,7 @@ class Pipeline(QThread):
         fill = img.copy()                                    # preenchimento do vaso a 30%
         cv2.fillPoly(fill, [np.concatenate([sil["R"], sil["L"][::-1]])], CLAY)
         cv2.addWeighted(fill, 0.3, img, 0.7, 0, img)
+        self._draw_topology_lines(img)
         for pts in sil.values():
             cv2.polylines(img, [pts], False, CLAY, 3, cv2.LINE_AA)
         cv2.line(img, tuple(map(int, sil["L"][-1])), tuple(map(int, sil["R"][-1])), CLAY, 2, cv2.LINE_AA)   # boca

@@ -117,6 +117,7 @@ INIT → (perfil?) → MODELING ⇄ PAUSED
 ```
 - **Preview 3D**: a malha cilíndrica é montada a partir de R, H e φ (mesma topologia e convenções do Blender), atualizada a ≤ 30 Hz, com cor de barro e sombreamento simples.
 - **Fallback**: se o OpenGL ou o pyqtgraph falharem, um render NumPy simples num QLabel.
+- **Linhas de topologia** (overlay da câmera): 12 linhas verticais presas a θ fixos do barro, só na metade da frente, desenhadas pelo perfil de cada coluna e mais fortes no centro. Elas deixam o giro visível.
 - **Mapa R**: QLabel com colormap (θ × z) e linhas das colunas de contato.
 - **Atalhos**: Space pausa, R reset, C calibra, Q sai.
 - `--viewer`: a mesma janela, só com o preview e o mapa, alimentados por UDP (`net.receiver`).
