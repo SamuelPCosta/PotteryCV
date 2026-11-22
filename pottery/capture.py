@@ -1,4 +1,4 @@
-"""Captura de webcam em thread, gravação e replay de sessões."""
+"""Captura de webcam em thread, gravacao e replay de sessoes."""
 from __future__ import annotations
 
 import csv
@@ -17,11 +17,11 @@ _BACKENDS = {"msmf": cv2.CAP_MSMF, "dshow": cv2.CAP_DSHOW, "any": cv2.CAP_ANY}
 class Frame:
     id: int
     ts_ns: int          # time.time_ns() na captura
-    image: np.ndarray   # BGR, já espelhada
+    image: np.ndarray   # BGR, ja espelhada
 
 
 class Camera:
-    """Mantém só o quadro mais recente (descarta atrasados)."""
+    """Mantem so o quadro mais recente (descarta atrasados)."""
 
     def __init__(self, cfg):
         self.cfg = cfg
@@ -29,7 +29,7 @@ class Camera:
         self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, cfg.width)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, cfg.height)
-        self.cap.set(cv2.CAP_PROP_FPS, cfg.fps)   # (BUFFERSIZE=1 derruba o MSMF para ~11 FPS; a thread já descarta atrasados)
+        self.cap.set(cv2.CAP_PROP_FPS, cfg.fps)   # (BUFFERSIZE=1 derruba o MSMF para ~11 FPS; a thread ja descarta atrasados)
         if not self.cap.isOpened():
             raise RuntimeError(f"Não abriu a câmera {cfg.index}")
         self._latest: Frame | None = None
@@ -73,7 +73,7 @@ class Camera:
 
 
 class Replay:
-    """Reproduz uma sessão gravada (video.mp4 + frames_ts.csv). realtime=False roda o mais rápido possível."""
+    """Reproduz uma sessao gravada (video.mp4 + frames_ts.csv). realtime=False roda o mais rapido possivel."""
 
     def __init__(self, folder: str | Path, realtime: bool = True):
         folder = Path(folder)

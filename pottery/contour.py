@@ -1,4 +1,4 @@
-"""Extratores de máscara da mão (landmarks | pele | MobileSAM) -> contorno real (com os dedos) -> perfil r_near(z), gesto."""
+"""Extratores de mascara da mao (landmarks | pele | MobileSAM) -> contorno real (com os dedos) -> perfil r_near(z), gesto."""
 from __future__ import annotations
 
 import queue
@@ -29,7 +29,7 @@ def hand_roi(lm: np.ndarray, pad: float, w: int, h: int) -> tuple[int, int, int,
     return (max(0, int(x0 - p)), max(0, int(y0 - p)), min(w, int(x1 + p) + 1), min(h, int(y1 + p) + 1))
 
 
-# ------------------------------------------------------------- extratores síncronos
+# ------------------------------------------------------------- extratores sincronos
 def landmarks_mask(hand, shape, finger_radius: float, kappa: float) -> HandMask:
     h, w = shape[:2]
     L = hand.scale(kappa)
@@ -40,7 +40,7 @@ def landmarks_mask(hand, shape, finger_radius: float, kappa: float) -> HandMask:
     pts = (hand.lm - [x0, y0]).astype(np.int32)
     cv2.fillPoly(m, [pts[PALM_POLY]], 255)              # palma, expandida (os landmarks ficam por dentro da borda)
     cv2.polylines(m, [pts[PALM_POLY]], True, 255, 2 * rad, cv2.LINE_AA)
-    for chain in FINGERS:                                # dedos como "cápsulas" ao longo de cada osso
+    for chain in FINGERS:                                # dedos como "capsulas" ao longo de cada osso
         for a, b in zip(chain, chain[1:]):
             r = rad if b not in (4, 8, 12, 16, 20) else int(rad * 0.85)
             cv2.line(m, tuple(map(int, pts[a])), tuple(map(int, pts[b])), 255, 2 * r, cv2.LINE_AA)
@@ -49,9 +49,9 @@ def landmarks_mask(hand, shape, finger_radius: float, kappa: float) -> HandMask:
     return HandMask((x0, y0, x1, y1), m, "landmarks")
 
 
-# ------------------------------------------------------------- SAM (assíncrono, GPU)
+# ------------------------------------------------------------- SAM (assincrono, GPU)
 def _sam_worker(name, weights, device, q_in, q_out):
-    """Processo separado: o CUDA do torch dá access violation em threads secundárias (Py 3.15 + torch 2.14)."""
+    """Processo separado: o CUDA do torch da access violation em threads secundarias (Py 3.15 + torch 2.14)."""
     try:
         from ultralytics import SAM
         model = SAM(weights)
@@ -65,7 +65,7 @@ def _sam_worker(name, weights, device, q_in, q_out):
                 break
             fid, crop, boxes, pts = item
             t0 = time.perf_counter()
-            # caixa + centro da palma (ponto positivo) por mão
+            # caixa + centro da palma (ponto positivo) por mao
             res = model(crop, bboxes=boxes, points=[[p] for p in pts], labels=[[1] for _ in pts], **kw)[0]
             xy = res.masks.xy if res.masks is not None else []
             polys = [xy[i] if i < len(xy) else None for i in range(len(boxes))]
@@ -75,8 +75,8 @@ def _sam_worker(name, weights, device, q_in, q_out):
 
 
 class SamSegmenter:
-    """Modelo da família SAM (ultralytics) num processo à parte, assíncrono. Prompt = caixa de cada mão (landmarks).
-    Entre execuções, a máscara é propagada pelo movimento dos landmarks (similaridade)."""
+    """Modelo da familia SAM (ultralytics) num processo a parte, assincrono. Prompt = caixa de cada mao (landmarks).
+    Entre execucoes, a mascara e propagada pelo movimento dos landmarks (similaridade)."""
 
     def __init__(self, name: str, models_dir: str, device: str, pad: float, max_age: int, timeout: float = 180):
         import multiprocessing as mp
@@ -99,7 +99,7 @@ class SamSegmenter:
 
     def request(self, frame_id, image, hands):
         self._drain()
-        if not hands or not self.q_in.empty():   # worker ocupado: só o pedido mais novo importa, este é pulado
+        if not hands or not self.q_in.empty():   # worker ocupado: so o pedido mais novo importa, este e pulado
             return
         H, W = image.shape[:2]
         rois = [hand_roi(h.lm, self.pad, W, H) for h in hands]
@@ -135,7 +135,7 @@ class SamSegmenter:
             for (tid, lm, r), poly in zip(hands, polys):
                 if poly is None or len(poly) < 3:
                     continue
-                sub = np.zeros((r[3] - r[1], r[2] - r[0]), np.uint8)   # polígono (coords do crop) -> roi da mão
+                sub = np.zeros((r[3] - r[1], r[2] - r[0]), np.uint8)   # poligono (coords do crop) -> roi da mao
                 cv2.fillPoly(sub, [(np.asarray(poly) - [r[0] - X0, r[1] - Y0]).astype(np.int32)], 255)
                 self.results[tid] = (HandMask(r, sub, self.name), lm, fid)
         if not self.proc.is_alive() and self.error is None:
@@ -185,13 +185,13 @@ class ToolProfile:
     r_near: np.ndarray      # (n_z,) m, raio da borda voltada para o eixo
     r_far: np.ndarray
     cover: np.ndarray       # bool
-    weight: np.ndarray      # 0..1 (atenuação nas pontas)
+    weight: np.ndarray      # 0..1 (atenuacao nas pontas)
     centroid_r: float
-    contour: np.ndarray     # (K,2) px na imagem — contorno real da mão (para desenhar)
+    contour: np.ndarray     # (K,2) px na imagem - contorno real da mao (para desenhar)
 
 
 def clean_mask(hm: HandMask) -> tuple[HandMask, np.ndarray] | None:
-    """Maior componente, sem buracos, levemente suavizado. Devolve (máscara, contorno em px da imagem)."""
+    """Maior componente, sem buracos, levemente suavizado. Devolve (mascara, contorno em px da imagem)."""
     cnts, _ = cv2.findContours(hm.mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
     if not cnts:
         return None
@@ -205,8 +205,8 @@ def clean_mask(hm: HandMask) -> tuple[HandMask, np.ndarray] | None:
 
 
 def mask_row_spans(hm: HandMask, v: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Para cada linha v (px da imagem): pixel mais à esquerda e mais à direita da mão (NaN se a linha não cruza a mão).
-    Não é convexo: entre dedos separados a linha fica vazia -> o dedo deixa a sua marca."""
+    """Para cada linha v (px da imagem): pixel mais a esquerda e mais a direita da mao (NaN se a linha nao cruza a mao).
+    Nao e convexo: entre dedos separados a linha fica vazia -> o dedo deixa a sua marca."""
     x0, y0 = hm.roi[0], hm.roi[1]
     m = hm.mask > 0
     has = m.any(1)
@@ -223,7 +223,7 @@ def mask_row_spans(hm: HandMask, v: np.ndarray) -> tuple[np.ndarray, np.ndarray]
 
 
 def hand_bottom_over_vase(hm: HandMask, s: float, prof, r_top: float) -> tuple[float | None, float]:
-    """Ponto mais baixo (z) da mão na faixa |x| <= r_top (sobre a boca do vaso) e z do centro da mão."""
+    """Ponto mais baixo (z) da mao na faixa |x| <= r_top (sobre a boca do vaso) e z do centro da mao."""
     m = hm.mask > 0
     cols = m.any(0)
     if not cols.any():
@@ -238,7 +238,7 @@ def hand_bottom_over_vase(hm: HandMask, s: float, prof, r_top: float) -> tuple[f
 
 
 def feather(cover: np.ndarray, dz: float, width_m: float) -> np.ndarray:
-    """Peso 0..1: rampa cosseno até `width_m` de distância das pontas da cobertura."""
+    """Peso 0..1: rampa cosseno ate `width_m` de distancia das pontas da cobertura."""
     n = len(cover)
     idx = np.arange(n)
     unc = np.flatnonzero(~cover)

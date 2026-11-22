@@ -1,4 +1,4 @@
-"""Interface Qt: webcam+overlay, preview 3D do vaso, mapa R desenrolado e painel de depuração."""
+"""Interface Qt: webcam+overlay, preview 3D do vaso, mapa R desenrolado e painel de depuracao."""
 from __future__ import annotations
 
 import math
@@ -20,14 +20,19 @@ except Exception:   # sem OpenGL: fallback 2D
 
 
 def to_pixmap(bgr: np.ndarray, size) -> QPixmap:
-    rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
-    h, w = rgb.shape[:2]
-    qi = QImage(rgb.data, w, h, 3 * w, QImage.Format.Format_RGB888).copy()
+    """BGR (3 canais) ou BGRA pre-multiplicado (4 canais, com transparencia) -> QPixmap."""
+    h, w = bgr.shape[:2]
+    if bgr.ndim == 3 and bgr.shape[2] == 4:
+        rgba = np.ascontiguousarray(cv2.cvtColor(bgr, cv2.COLOR_BGRA2RGBA))
+        qi = QImage(rgba.data, w, h, 4 * w, QImage.Format.Format_RGBA8888_Premultiplied).copy()
+    else:
+        rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+        qi = QImage(rgb.data, w, h, 3 * w, QImage.Format.Format_RGB888).copy()
     return QPixmap.fromImage(qi).scaled(size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
 
 
 def vase_mesh(n_theta: int, n_z: int) -> np.ndarray:
-    """Faces da parede externa (θ por fora, z por dentro, com costura) + fundo em leque. Mesma ordem do Blender."""
+    """Faces da parede externa (theta por fora, z por dentro, com costura) + fundo em leque. Mesma ordem do Blender."""
     i = np.arange(n_theta)[:, None]
     j = np.arange(n_z - 1)[None]
     a = i * n_z + j
@@ -40,7 +45,7 @@ def vase_mesh(n_theta: int, n_z: int) -> np.ndarray:
 
 
 def vase_vertices(R: np.ndarray, H: float, phi: float, hf: np.ndarray | None = None) -> np.ndarray:
-    """hf: altura relativa de cada coluna (0..1 × H); None = topo uniforme."""
+    """hf: altura relativa de cada coluna (0..1 x H); None = topo uniforme."""
     n_theta, n_z = R.shape
     th = 2 * np.pi * np.arange(n_theta) / n_theta + phi
     hc = H * (np.ones(n_theta) if hf is None else np.asarray(hf))
@@ -52,7 +57,7 @@ def vase_vertices(R: np.ndarray, H: float, phi: float, hf: np.ndarray | None = N
 
 
 def vase_normals(verts: np.ndarray, n_theta: int, n_z: int) -> np.ndarray:
-    """Normais por vértice direto da grade (o cálculo do pyqtgraph leva ~200 ms)."""
+    """Normais por vertice direto da grade (o calculo do pyqtgraph leva ~200 ms)."""
     P = verts[:-1].reshape(n_theta, n_z, 3)
     dth = np.roll(P, -1, 0) - np.roll(P, 1, 0)
     dz = np.gradient(P, axis=1)
@@ -64,101 +69,15 @@ def vase_normals(verts: np.ndarray, n_theta: int, n_z: int) -> np.ndarray:
 def vase_meshdata(R, H, phi, faces, hf=None):
     v = vase_vertices(R, H, phi, hf)
     md = gl.MeshData(vertexes=v, faces=faces)
-    md._vertexNormals = vase_normals(v, *R.shape)   # evita o cálculo lento interno
+    md._vertexNormals = vase_normals(v, *R.shape)   # evita o calculo lento interno
     return md
-
-
-class Preview3D(QWidget):
-    def __init__(self):
-        super().__init__()
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 0)
-        self.shape = None
-        if _HAS_GL:
-            self.view = gl.GLViewWidget()
-            self.view.setBackgroundColor((38, 38, 42))
-            self.view.setCameraPosition(distance=0.65, elevation=18, azimuth=-90)   # câmera em −Y, como no Blender
-            g = gl.GLGridItem()
-            g.setSize(0.6, 0.6)
-            g.setSpacing(0.05, 0.05)
-            self.view.addItem(g)
-            self.mesh = None
-            lay.addWidget(self.view)
-        else:
-            self.view = QLabel("OpenGL indisponível — preview 2D")
-            self.view.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            lay.addWidget(self.view)
-
-    def update_vase(self, R: np.ndarray, H: float, phi: float, hf: np.ndarray | None = None):
-        if not _HAS_GL:
-            self._fallback(R, H, hf)
-            return
-        if self.shape != R.shape:
-            self.shape = R.shape
-            self.faces = vase_mesh(*R.shape)
-            if self.mesh is not None:
-                self.view.removeItem(self.mesh)
-            self.mesh = gl.GLMeshItem(meshdata=vase_meshdata(R, H, phi, self.faces, hf), smooth=True,
-                                      shader="shaded", color=(0.78, 0.50, 0.34, 1.0), glOptions="opaque")
-            self.view.addItem(self.mesh)
-        else:
-            self.mesh.setMeshData(meshdata=vase_meshdata(R, H, phi, self.faces, hf), smooth=True)
-        self.view.opts["center"] = pg_vector(0, 0, H / 2)
-
-    def _fallback(self, R, H, hf=None):
-        img = np.full((300, 300, 3), 40, np.uint8)
-        sc = 250 / max(H, 2 * R.max(), 1e-3)
-        hf = np.ones(R.shape[0]) if hf is None else hf
-        for col, sg in ((0, 1), (R.shape[0] // 2, -1)):
-            z = H * hf[col] * np.linspace(0, 1, R.shape[1])
-            pts = np.stack([150 + sg * R[col] * sc, 280 - z * sc], 1).astype(np.int32)
-            cv2.polylines(img, [pts], False, (60, 110, 200), 2)
-        self.view.setPixmap(to_pixmap(img, self.view.size()))
-
 
 def pg_vector(x, y, z):
     from pyqtgraph import Vector
     return Vector(x, y, z)
 
-
-class WheelIndicator(QLabel):
-    """Seta circular (assets/wheel_arrow.png) recortada em círculo, girando com o ângulo do torno."""
-
-    def __init__(self):
-        super().__init__()
-        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
-        self.setStyleSheet("background:#111")
-        from pathlib import Path
-        p = Path(__file__).resolve().parents[1] / "assets" / "wheel_arrow.png"
-        img = cv2.imread(str(p), cv2.IMREAD_UNCHANGED)
-        if img is None:
-            img = np.full((200, 200, 3), 255, np.uint8)
-        elif img.ndim == 3 and img.shape[2] == 4:          # PNG transparente -> sobre fundo branco
-            a = img[:, :, 3:4].astype(np.float32) / 255
-            img = (img[:, :, :3] * a + 255 * (1 - a)).astype(np.uint8)
-        s = min(img.shape[:2])
-        y, x = (img.shape[0] - s) // 2, (img.shape[1] - s) // 2
-        self.base = cv2.resize(img[y:y + s, x:x + s], (220, 220), interpolation=cv2.INTER_AREA)
-        yy, xx = np.mgrid[:220, :220]
-        self.circle = ((xx - 109.5) ** 2 + (yy - 109.5) ** 2) <= 108 ** 2
-
-    def update_angle(self, phi: float, rpm: float):
-        M = cv2.getRotationMatrix2D((109.5, 109.5), math.degrees(phi), 1.0)   # positivo = anti-horário na tela
-        rot = cv2.warpAffine(self.base, M, (220, 220), borderValue=(255, 255, 255))
-        pad = 60                                             # margem lateral e superior
-        out = np.full((220 + 110, 220 + 2 * pad, 3), 17, np.uint8)   # altura extra embaixo para o texto
-        disc = out[15:235, pad:pad + 220]
-        disc[self.circle] = rot[self.circle]
-        cv2.circle(out, (pad + 110, 125), 108, (60, 110, 200), 2, cv2.LINE_AA)
-        txt = f"{rpm:.0f} rpm"
-        tw = cv2.getTextSize(txt, cv2.FONT_HERSHEY_SIMPLEX, 1.4, 2)[0][0]
-        cv2.putText(out, txt, (pad + 110 - tw // 2, 300), cv2.FONT_HERSHEY_SIMPLEX, 1.4, (230, 230, 230), 2, cv2.LINE_AA)
-        self.setPixmap(to_pixmap(out, self.size()))
-
-
 def rmap_image(R: np.ndarray, r_max: float, cols: dict | None) -> np.ndarray:
-    img = (np.clip(R.T[::-1] / r_max, 0, 1) * 255).astype(np.uint8)   # z para cima, θ na horizontal
+    img = (np.clip(R.T[::-1] / r_max, 0, 1) * 255).astype(np.uint8)   # z para cima, theta na horizontal
     img = cv2.applyColorMap(img, cv2.COLORMAP_VIRIDIS)
     img = cv2.resize(img, (R.shape[0] * 3, R.shape[1] * 2), interpolation=cv2.INTER_NEAREST)
     for e, c in (cols or {}).items():
@@ -170,32 +89,28 @@ def rmap_image(R: np.ndarray, r_max: float, cols: dict | None) -> np.ndarray:
 class MainWindow(QMainWindow):
     def __init__(self, cfg, pipeline=None, receiver=None):
         super().__init__()
+        self.setStyleSheet("background:#111;color:#aaa")
         self.cfg, self.pipe, self.rx = cfg, pipeline, receiver
-        self.setWindowTitle("PotteryCV — " + ("viewer" if receiver else "torno virtual"))
+        self.setWindowTitle("PotteryCV — " + ("viewer" if receiver else "Torno virtual"))
         self.resize(1500, 900)
-        self.video = QLabel("aguardando câmera…")
+        self.video = QLabel("Aguardando câmera…")
         self.video.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.video.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
-        self.video.setStyleSheet("background:#111;color:#aaa")
-        self.preview = Preview3D()
+        self.video.setStyleSheet("background:#000;color:#aaa")
         self.rmap = QLabel()
         self.rmap.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.rmap.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
-        self.rmap.setStyleSheet("background:#111")
         self.debug = QLabel()
         self.debug.setFont(QFont("Consolas", 9))
         self.debug.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.debug.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
 
-        self.wheel = WheelIndicator()
         dbg_row = QWidget()
         dl = QHBoxLayout(dbg_row)
         dl.setContentsMargins(0, 0, 0, 0)
         dl.setSpacing(8)
         dl.addWidget(self.rmap, 3)
-        dl.addWidget(self.wheel, 1)
         right = QSplitter(Qt.Orientation.Vertical)
-        right.addWidget(self.preview)
         right.addWidget(dbg_row)
         right.setSizes([600, 250])
         top = QSplitter(Qt.Orientation.Horizontal)
@@ -238,6 +153,7 @@ class MainWindow(QMainWindow):
             return b
 
         self.b_rec = button("Gravar sessão", "record", True)
+        self.setStyleSheet("background:#aaa;color:#111")
         g.addWidget(button("Calibrar [C]", "calibrate"), 0, 0)
         g.addWidget(button("Cancelar calibração", "cancel_calibration"), 0, 1)
         g.addWidget(button("Reset vaso [R]", "reset"), 0, 2)
@@ -255,7 +171,7 @@ class MainWindow(QMainWindow):
         ex.currentTextChanged.connect(lambda v: cmd("extractor", v))
         g.addWidget(ex, 1, 1)
 
-        g.addWidget(QLabel("Velocidade: cabeça ↓ acelera · ↑ para"), 2, 0, 1, 3)
+        g.addWidget(QLabel("Velocidade: Cabeça ↓ Acelera · ↑ Freia"), 2, 0, 1, 3)
         lock = QCheckBox("Trava velocidade [L]")
         lock.toggled.connect(lambda v: cmd("lock", v))
         g.addWidget(lock, 2, 3, 1, 2)
@@ -290,7 +206,7 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("C"), self, lambda: cmd("calibrate"))
         return w
 
-    # ---------------------------------------------------------------- atualização
+    # ---------------------------------------------------------------- atualizacao
     def on_result(self, r: dict):
         if "fatal" in r:
             self.debug.setText(f"ERRO FATAL: {r['fatal']}")
@@ -299,9 +215,7 @@ class MainWindow(QMainWindow):
             self.debug.setText(r.get("message", ""))
             return
         self.video.setPixmap(to_pixmap(r["image"], self.video.size()))
-        self.preview.update_vase(r["R"], r["H"], r["phi"], r.get("Hf"))
         self.rmap.setPixmap(to_pixmap(rmap_image(r["R"], self.cfg.vase.r_max, r["cols"]), self.rmap.size()))
-        self.wheel.update_angle(r["phi"], r["rpm"])
         ms = r["ms"]
         pen = {e: (f"{v * 1000:+.1f}mm" if v == v else "  —  ") for e, v in r["pen"].items()}
         self.debug.setText(
@@ -319,9 +233,7 @@ class MainWindow(QMainWindow):
     def poll_receiver(self):
         if self.rx.poll() and self.rx.R is not None:
             m = self.rx.meta
-            self.preview.update_vase(self.rx.R, m["height"], m["phi"], self.rx.HF)
             self.rmap.setPixmap(to_pixmap(rmap_image(self.rx.R, self.cfg.vase.r_max, None), self.rmap.size()))
-            self.wheel.update_angle(m["phi"], m["omega"] * 60 / (2 * math.pi))
             lat = (m["t_recv_ns"] - m["t_capture_ns"]) / 1e6 if m["t_capture_ns"] else float("nan")
             self.debug.setText(f"viewer UDP :{self.cfg.net.viewer_port}   pacotes {self.rx.packets}   seq {m['seq']}\n"
                                f"R {self.rx.R.shape}   H {m['height'] * 100:.1f} cm   φ {math.degrees(m['phi']):.1f}°   "

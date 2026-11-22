@@ -1,4 +1,4 @@
-"""Loop por quadro (QThread): captura → mãos/rosto → calibração → contorno → contato → vaso → velocidade → overlay/UDP/CSV."""
+"""Loop por quadro (QThread): captura -> maos/rosto -> calibracao -> contorno -> contato -> vaso -> velocidade -> overlay/UDP/CSV."""
 from __future__ import annotations
 
 import csv
@@ -20,7 +20,7 @@ from .tracking import HandTracker, HeadObs, HeadTracker, assign_edges
 from .vase import EdgeContact, TopContact, Vase
 
 def _ascii(s: str) -> str:
-    """cv2.putText não desenha acentos."""
+    """cv2.putText nao desenha acentos."""
     import unicodedata
     return unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode()
 
@@ -39,8 +39,23 @@ class Pipeline(QThread):
         self.profile_path = profile or cfg.calib.profile_path
         self.cmds: queue.Queue = queue.Queue()
         self._running = True
-        # a câmera (MSMF) precisa ser aberta na thread principal: dentro da QThread o open trava (COM)
+        # a camera (MSMF) precisa ser aberta na thread principal: dentro da QThread o open trava (COM)
         self.src = Replay(replay) if replay else Camera(cfg.camera)
+        
+        from pathlib import Path
+        arrow = Path(__file__).resolve().parents[1] / "assets" / "wheel_arrow.png"
+        img = cv2.imread(str(arrow), cv2.IMREAD_UNCHANGED)
+        if img is None:
+            img = np.full((200, 200, 4), 255, np.uint8)
+        elif img.ndim == 2:
+            img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGRA)
+        elif img.shape[2] == 3:                            # sem alfa: tudo opaco
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2BGRA)
+        a = img[:, :, 3:4].astype(np.float32) / 255
+        img = np.concatenate([img[:, :, :3] * a, img[:, :, 3:4]], 2).astype(np.uint8)
+        s = min(img.shape[:2])
+        y, x = (img.shape[0] - s) // 2, (img.shape[1] - s) // 2
+        self.base = cv2.resize(img[y:y + s, x:x + s], (100, 100), interpolation=cv2.INTER_AREA)   # tamanho na camera
 
     # ---------------------------------------------------------------- API para a GUI
     def command(self, name: str, value=None):
@@ -73,13 +88,13 @@ class Pipeline(QThread):
         self.state = "INIT"
         self.head = HeadObs(False)
         self.fps = 0.0
-        self.reset_at: float | None = None   # contagem do reinício após esmagar
+        self.reset_at: float | None = None   # contagem do reinicio apos esmagar
         self.reset_left = 0.0
         self.show_lm = False
 
     def _apply_profile(self):
-        """Aplica o perfil ao vaso: altura máxima = 80% da imagem (base no rodapé) e raio inicial
-        = largura medida entre as mãos na calibração (se houver). Reinicia o cilindro."""
+        """Aplica o perfil ao vaso: altura maxima = 80% da imagem (base no rodape) e raio inicial
+        = largura medida entre as maos na calibracao (se houver). Reinicia o cilindro."""
         p, cv = self.prof, self.cfg.vase
         cv.h_max = 0.8 * p.height * p.k
         if p.calibrated and p.r0 > 0:
@@ -236,7 +251,7 @@ class Pipeline(QThread):
         prof = self.prof
         modeling = self.state == "MODELING" and not self.paused
 
-        # ---------------- contorno → perfil
+        # ---------------- contorno -> perfil
         sticky = {e: k.track_id for e, k in self.contacts.items() if k.state != "FREE" and k.track_id is not None}
         edges = assign_edges(hands, prof.axis_u, sticky)
         if self.seg is not None:
@@ -280,13 +295,13 @@ class Pipeline(QThread):
         # ---------------- velocidade + vaso
         if modeling and prof.calibrated:
             omega = self.speed.update(self.head, t, dt)
-        else:   # sem calibração não há pose neutra da cabeça: torno na velocidade mínima
+        else:   # sem calibracao nao ha pose neutra da cabeca: torno na velocidade minima
             self.speed.rpm = c.speed.min_rpm
             omega = self.speed.rpm * 2 * math.pi / 60
             self.speed.status = "calibre primeiro" if not prof.calibrated else "pausado"
         self.vase.omega = omega
         phi0, phi1 = self.vase.advance(dt) if modeling else (self.vase.phi, self.vase.phi)
-        # esmagou (altura < 15% da inicial): avisa e reinicia em 3 s — tempo de tirar a mão do meio
+        # esmagou (altura < 15% da inicial): avisa e reinicia em 3 s - tempo de tirar a mao do meio
         if modeling and self.reset_at is None and self.vase.Hc.mean() < c.vase.crush_reset_frac * c.vase.h0:
             self.reset_at = t + 3.0
         crushing = self.reset_at is not None
@@ -304,12 +319,12 @@ class Pipeline(QThread):
                 self.prev_prof[e] = None
                 continue
             z_low, zc = tops.get(e, (None, None))
-            if self.tops[e].update(z_low, zc, self.vase.top_at(e)):   # mão por cima: abaixa só onde ela bate
+            if self.tops[e].update(z_low, zc, self.vase.top_at(e)):   # mao por cima: abaixa so onde ela bate
                 self.vase.press_top(e, phi0, phi1, z_low)
                 k._free()
                 self.prev_prof[e] = None
                 continue
-            zg = np.linspace(0.0, self.vase.H, self.vase.n_z)          # mesma grade de z do perfil da mão
+            zg = np.linspace(0.0, self.vase.H, self.vase.n_z)          # mesma grade de z do perfil da mao
             act = k.update(profiles.get(e), h.track_id if h else None, self.vase.wall(e, zg), t)
             prev = self.prev_prof[e] if act != "NONE" else None
             self.vase.apply(e, phi0, phi1, prev, profiles.get(e), act)
@@ -317,7 +332,7 @@ class Pipeline(QThread):
         t4 = time.perf_counter()
         ms["sim"] = (t4 - t3) * 1000
 
-        # ---------------- saídas
+        # ---------------- saidas
         overlay = self._draw(img.copy(), edges, profiles, masks)
         flags = (F_CALIB if self.state == "CALIBRATING" else 0) | (F_PAUSED if self.paused else 0) | (F_RESET if self.vase.reset_flag else 0)
         self.vase.reset_flag = False
@@ -362,18 +377,18 @@ class Pipeline(QThread):
 
     # ---------------------------------------------------------------- overlay
     def _draw_head_gauge(self, img):
-        """Medidor vertical da inclinação da cabeça (↓ acelera, ↑ para), sempre visível, colado na direita."""
+        """Medidor vertical da inclinacao da cabeca (baixo acelera, cima para), sempre visivel, colado na direita."""
         sc = self.cfg.speed
         H_img, W_img = img.shape[:2]
         F = cv2.FONT_HERSHEY_SIMPLEX
         full = 25.0                                                      # graus no fim da escala
         gw, gh = 44, min(380, H_img - 140)
         gx = W_img - gw - 24                                             # colado na borda direita
-        gc = H_img // 2
+        gc = H_img // 2 - 160
         top, bot = gc - gh // 2, gc + gh // 2
         px = lambda deg: int(gc + np.clip(deg / full, -1, 1) * gh / 2)   # para baixo = mais abaixo
 
-        def text_left(s, y, scale, color):                               # texto alinhado à esquerda da barra
+        def text_left(s, y, scale, color):                               # texto alinhado a esquerda da barra
             tw = cv2.getTextSize(s, F, scale, 2)[0][0]
             cv2.putText(img, s, (gx - 24 - tw, y), F, scale, color, 2, cv2.LINE_AA)
 
@@ -382,32 +397,51 @@ class Pipeline(QThread):
         cv2.rectangle(img, (gx, px(-sc.brake_deg)), (gx + gw, px(sc.accel_deg)), (120, 120, 120), -1)
         cv2.rectangle(img, (gx, top), (gx + gw, bot), (240, 240, 240), 2)
         cv2.line(img, (gx, gc), (gx + gw, gc), (240, 240, 240), 1)                               # neutro
-        text_left("PARA", top + 26, 0.9, (120, 120, 255))
-        text_left("ACELERA", bot - 6, 0.9, (120, 255, 120))
+        text_left("Freia", top + 26, 0.7, (120, 120, 255))
+        text_left("Acelera", bot - 6, 0.7, (120, 255, 120))
         if self.head.ok:
             d = sc.pitch_sign * (self.head.pitch - self.prof.pitch0)    # > 0 = olhando para baixo
             y = px(d)
             cv2.line(img, (gx - 16, y), (gx + gw + 10, y), (0, 255, 255), 6)
             text_left(f"{d:+.1f} deg", y + 10, 1.0, (0, 255, 255))
-            if self.show_lm and self.head.bbox:                          # retângulo do rosto só no debug
+            if self.show_lm and self.head.bbox:                          # retangulo do rosto so no debug
                 x0, y0, x1, y1 = self.head.bbox
                 cv2.rectangle(img, (x0, y0), (x1, y1), (255, 200, 0), 1)
         else:
-            text_left("sem rosto", gc + 10, 0.9, (200, 200, 200))
+            text_left("Sem rosto", gc + 10, 0.7, (200, 200, 200))
         status = _ascii(self.speed.status)
         tw = cv2.getTextSize(status, F, 0.8, 2)[0][0]
         cv2.putText(img, status, (W_img - tw - 16, bot + 40), F, 0.8, (255, 255, 255), 2, cv2.LINE_AA)
+        return gx + gw, bot + 40          # borda direita da barra e linha do texto de status
+
+    def _draw_wheel(self, img, right):
+        """Seta do torno girando com phi e as rpm, colada no rodape, alinhada com o medidor."""
+        Hh, Ww = img.shape[:2]
+        s = self.base.shape[0]
+        cx = right - s // 2                   # alinhada pela direita com a barra do medidor
+        cy = Hh - 40 - s // 2                 # colada no rodape (40 px livres embaixo para as rpm)
+        m = cv2.getRotationMatrix2D((s / 2, s / 2), math.degrees(self.vase.phi), 1.0)
+        rot = cv2.warpAffine(self.base, m, (s, s), borderValue=(0, 0, 0, 0))
+        x0, y0 = cx - s // 2, cy - s // 2                    # fatiar exige inteiros: // em vez de /
+        if x0 < 0 or y0 < 0 or x0 + s > Ww or y0 + s > Hh:   # passaria da borda: nao desenha
+            return
+        roi = img[y0:y0 + s, x0:x0 + s]
+        a = rot[:, :, 3:4].astype(np.float32) / 255           # alfa da seta, 0..1, formato (s, s, 1)
+        roi[:] = (rot[:, :, :3] + roi * (1 - a)).astype(np.uint8)   # seta ja pre-multiplicada
+        txt = f"{self.speed.rpm:.0f} rpm"
+        tw = cv2.getTextSize(txt, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0][0]
+        cv2.putText(img, txt, (cx - tw // 2, y0 + s + 28), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
 
     def _draw_topology_lines(self, img, n=12, color=(25, 55, 110)):
-        """Linhas de topologia: verticais presas ao barro (θ fixo), correm pela frente do vaso conforme ele gira."""
+        """Linhas de topologia: verticais presas ao barro (theta fixo), correm pela frente do vaso conforme ele gira."""
         prof, v = self.prof, self.vase
         Hh, Ww = img.shape[:2]
         zj = np.linspace(0, 1, v.n_z)
         lines = []
         for m in range(n):
             i = (m * v.n_theta) // n
-            tw = 2 * math.pi * i / v.n_theta + v.phi        # ângulo de mundo da coluna
-            w = -math.sin(tw)                               # câmera em −Y: frente = sin < 0
+            tw = 2 * math.pi * i / v.n_theta + v.phi        # angulo de mundo da coluna
+            w = -math.sin(tw)                               # camera em -Y: frente = sin < 0
             if w < 0.05:
                 continue
             u = prof.x_to_u(v.R[i] * math.cos(tw))
@@ -415,7 +449,7 @@ class Pipeline(QThread):
             lines.append((np.stack([u, vv], 1).astype(np.int32), int(255 * w ** 0.7)))
         if not lines:
             return
-        allp = np.concatenate([p for p, _ in lines])                 # só a caixa do vaso (barato)
+        allp = np.concatenate([p for p, _ in lines])                 # so a caixa do vaso (barato)
         x0, y0 = np.maximum(allp.min(0) - 3, 0)
         x1, y1 = np.minimum(allp.max(0) + 4, (Ww, Hh))
         if x1 <= x0 or y1 <= y0:
@@ -429,7 +463,7 @@ class Pipeline(QThread):
 
     def _draw(self, img, edges, profiles, masks):
         prof, v = self.prof, self.vase
-        z = np.linspace(0, v.H, v.n_z)                       # grade global (perfil das mãos)
+        z = np.linspace(0, v.H, v.n_z)                       # grade global (perfil das maos)
         au = int(prof.axis_u)
         top = int(prof.z_to_v(v.H))
         bv = int(prof.base_v)
@@ -473,7 +507,8 @@ class Pipeline(QThread):
             cv2.putText(img, f"{e}:{st}", (int(h.center[0]) - 30, int(h.center[1])),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, col, 2, cv2.LINE_AA)
         H, W = img.shape[:2]
-        self._draw_head_gauge(img)
+        right, _ = self._draw_head_gauge(img)
+        self._draw_wheel(img, right)
         if self.state == "CALIBRATING" and self.calib:
             cb = self.calib
             cv2.rectangle(img, (0, 0), (W, 95), (0, 0, 0), -1)

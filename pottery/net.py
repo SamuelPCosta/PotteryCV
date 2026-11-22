@@ -1,4 +1,4 @@
-"""Protocolo UDP v1 (specs/protocol.md): codificação, sender e receiver."""
+"""Protocolo UDP v1 (specs/protocol.md): codificacao, sender e receiver."""
 from __future__ import annotations
 
 import random
@@ -21,7 +21,7 @@ MAX_UDP = 65507
 def encode_state(R: np.ndarray, H: float, phi: float, omega: float, seq: int, frame_id: int, t_capture_ns: int,
                  version: int, flags: int = 0, r_scale: float = 0.30, max_datagram: int = 65000,
                  hfrac: np.ndarray | None = None) -> list[bytearray]:
-    """Payload de cada bloco: col_count×n_z raios (uint16) + col_count alturas relativas da coluna (uint16, 0..1 × H)."""
+    """Payload de cada bloco: col_countxn_z raios (uint16) + col_count alturas relativas da coluna (uint16, 0..1 x H)."""
     n_theta, n_z = R.shape
     q = np.round(np.clip(R / r_scale, 0, 1) * 65535).astype("<u2")
     hf = np.ones(n_theta) if hfrac is None else np.asarray(hfrac, dtype=np.float64)
@@ -76,7 +76,7 @@ def encode_echo(seq, frame_id, t_capture_ns, t_send_ns, t_recv_ns, t_applied_ns)
 
 
 def seq_newer(a: int, b: int) -> bool:
-    """a é mais novo (ou igual) que b, com wrap de 32 bits."""
+    """a e mais novo (ou igual) que b, com wrap de 32 bits."""
     return ((a - b) & 0xFFFFFFFF) < 0x80000000
 
 
@@ -100,14 +100,14 @@ class Sender:
                 self.echo.setblocking(False)
             except OSError:
                 self.echo = None
-        self.drop = 0.0          # fração de datagramas descartados (teste de perda)
+        self.drop = 0.0          # fracao de datagramas descartados (teste de perda)
         self.seq = 0
         self._last = 0.0
         self._last_version = -1
         self.sent = 0
 
     def maybe_send(self, R, H, phi, omega, frame_id, t_capture_ns, version, flags=0, force=False, hfrac=None) -> bool:
-        now = time.perf_counter()   # monotonic no Windows tem ~15 ms de resolução
+        now = time.perf_counter()   # monotonic no Windows tem ~15 ms de resolucao
         idle = version == self._last_version and omega == 0.0
         if not force and (now - self._last < (0.5 if idle else 0.9 * self.min_dt)):
             return False
@@ -122,7 +122,7 @@ class Sender:
                 try:
                     self.sock.sendto(buf, a)
                 except OSError:
-                    pass   # ninguém escutando: normal
+                    pass   # ninguem escutando: normal
         self.sent += 1
         return True
 
@@ -148,7 +148,7 @@ class Sender:
 
 
 class Receiver:
-    """Recebe STATE e mantém o mapa R mais recente (usado pelo --viewer e pelos testes)."""
+    """Recebe STATE e mantem o mapa R mais recente (usado pelo --viewer e pelos testes)."""
 
     def __init__(self, port: int, echo_to: tuple[str, int] | None = None):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -156,7 +156,7 @@ class Receiver:
         self.sock.setblocking(False)
         self.echo_to = echo_to
         self.R: np.ndarray | None = None
-        self.HF: np.ndarray | None = None      # altura relativa de cada coluna (0..1 × H)
+        self.HF: np.ndarray | None = None      # altura relativa de cada coluna (0..1 x H)
         self.meta: dict = {}
         self._chunk_seq: dict[int, int] = {}
         self.packets = 0

@@ -1,4 +1,4 @@
-"""Configuração: dataclasses com valores padrão, sobrescritos por config.toml."""
+"""Configuracao: dataclasses com valores padrao, sobrescritos por config.toml."""
 from __future__ import annotations
 
 import tomllib
@@ -26,19 +26,19 @@ class VaseCfg:
     r_max: float = 0.18
     h_min: float = 0.01
     h_max: float = 0.40
-    r_scale: float = 0.30     # faixa de quantização do protocolo
+    r_scale: float = 0.30     # faixa de quantizacao do protocolo
     alpha: float = 0.6        # plasticidade por passagem
     smooth_lambda: float = 0.5        # espalhamento da marca para os vizinhos (0 = marca seca, 1 = bem espalhada)
     smooth_sigma_theta: float = 1.5
     smooth_sigma_z: float = 1.5
     crush_reset_frac: float = 0.20    # esmagou abaixo de 20% de h0 -> reinicia (com contagem de 3 s)
-    feather_m: float = 0.003   # rampa nas pontas de cada dedo (pequena para não apagar a marca do dedo)
+    feather_m: float = 0.003   # rampa nas pontas de cada dedo (pequena para nao apagar a marca do dedo)
     side_gain: float = 0.4    # apertar dos lados -> sobe: 0 = altura fixa, 1 = conserva volume exato
     top_rate: float = 0.5     # rapidez do achatamento ao empurrar o topo (conserva volume: engorda)
 
 
 @dataclass
-class ContactCfg:             # a mão só empurra por fora (único modo)
+class ContactCfg:             # a mao so empurra por fora (unico modo)
     engage_m: float = 0.002
     release_m: float = 0.015
     release_frames: int = 3
@@ -47,7 +47,7 @@ class ContactCfg:             # a mão só empurra por fora (único modo)
 
 @dataclass
 class HandCfg:
-    L_real_m: float = 0.095   # pulso -> nó do dedo médio
+    L_real_m: float = 0.095   # pulso -> no do dedo medio
     kappa_default: float = 1.3
     finger_radius: float = 0.12  # meia largura do dedo (x L): landmarks ficam no centro do dedo
     profile_ema: float = 0.5
@@ -61,16 +61,16 @@ class HandCfg:
 
 @dataclass
 class SpeedCfg:
-    # cabeça um pouco para cima -> para; para baixo -> vai acelerando; neutra -> mantém
-    accel_deg: float = 4.0    # para baixo além disso: acelera
-    brake_deg: float = 4.0    # para cima além disso: freia até parar
+    # cabeca um pouco para cima -> para; para baixo -> vai acelerando; neutra -> mantem
+    accel_deg: float = 4.0    # para baixo alem disso: acelera
+    brake_deg: float = 4.0    # para cima alem disso: freia ate parar
     sat_deg: float = 22.0
     gamma: float = 1.5
     dwell_s: float = 0.3
     accel_rpm_s: float = 50.0
     brake_rpm_s: float = 200.0
     max_rpm: float = 90.0
-    min_rpm: float = 2.0      # o torno nunca para: mínimo sempre
+    min_rpm: float = 2.0      # o torno nunca para: minimo sempre
     yaw_gate_deg: float = 25.0
     face_every: int = 2
     pitch_sign: float = 1.0   # inverter (-1) se olhar para baixo estiver freando

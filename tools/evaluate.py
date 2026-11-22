@@ -1,9 +1,9 @@
-"""Avaliação (specs/evaluation.md) a partir de sessões gravadas. Resultados em data/results/.
+"""Avaliacao (specs/evaluation.md) a partir de sessoes gravadas. Resultados em data/results/.
 
     python tools/evaluate.py fps      data/sessions/<pasta>         # CA-01: FPS e ms por etapa
     python tools/evaluate.py contour  data/sessions/<pasta> [--extractors landmarks mobilesam]   # E1
-    python tools/evaluate.py jitter   data/sessions/<pasta> ...     # E2 (agrupa por suavização ligada/desligada)
-    python tools/evaluate.py depth    data/sessions/<pasta> ...     # E3 (agrupa por normalização ligada/desligada)
+    python tools/evaluate.py jitter   data/sessions/<pasta> ...     # E2 (agrupa por suavizacao ligada/desligada)
+    python tools/evaluate.py depth    data/sessions/<pasta> ...     # E3 (agrupa por normalizacao ligada/desligada)
     python tools/evaluate.py latency  data/sessions/<pasta> ...     # E4
 """
 import argparse
@@ -16,7 +16,7 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-import pottery  # noqa: E402,F401  (antes de cv2/Qt — ver pottery/__init__.py)
+import pottery  # noqa: E402,F401  (antes de cv2/Qt - ver pottery/__init__.py)
 import cv2  # noqa: E402
 
 
@@ -81,7 +81,7 @@ def cmd_contour(sessions, extractors):
                 frames[fid] = (img, ts[i])
         prof = CalibProfile.load(prof_p, 1280, 720, True)[0] if prof_p.exists() else CalibProfile.default(1280, 720)
         for ex in extractors:
-            ht = HandTracker(cfg.models_dir, cfg.hand)   # novo por extrator (modo vídeo exige ts crescente)
+            ht = HandTracker(cfg.models_dir, cfg.hand)   # novo por extrator (modo video exige ts crescente)
             seg = ct.SamSegmenter(ex, cfg.models_dir, cfg.seg.device, cfg.seg.roi_pad, 999) if ex in ct._SAM_WEIGHTS else None
             for fid, (img, t) in sorted(frames.items()):
                 lab = cv2.imread(str(ann[fid]), cv2.IMREAD_GRAYSCALE)
@@ -115,7 +115,7 @@ def cmd_contour(sessions, extractors):
                     g = max(ids_gt, key=lambda v: ((lab == v) & (pred > 0)).sum())
                     ghm = (lab == g).astype(np.uint8)
                     iou = ((pred & ghm).sum()) / max(((pred | ghm).sum()), 1)
-                    # Chamfer simétrico entre contornos (px)
+                    # Chamfer simetrico entre contornos (px)
                     c1 = cv2.findContours(pred, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)[0]
                     c2 = cv2.findContours(ghm, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)[0]
                     ch = np.nan

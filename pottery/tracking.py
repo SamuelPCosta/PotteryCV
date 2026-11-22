@@ -1,4 +1,4 @@
-"""MediaPipe (mãos + rosto), filtro One Euro e atribuição das mãos às bordas."""
+"""MediaPipe (maos + rosto), filtro One Euro e atribuicao das maos as bordas."""
 from __future__ import annotations
 
 import math
@@ -42,19 +42,19 @@ class OneEuro:
         return self.x
 
 
-# ---------------------------------------------------------------- mãos
+# ---------------------------------------------------------------- maos
 PALM = [0, 5, 9, 13, 17]
 
 
 @dataclass
 class HandObs:
     track_id: int
-    handedness: str          # "Left" | "Right" (rótulo do MediaPipe)
+    handedness: str          # "Left" | "Right" (rotulo do MediaPipe)
     score: float
     lm: np.ndarray           # (21,2) px, filtrado
     lm_raw: np.ndarray       # (21,2) px
-    d09: float               # |pulso - nó médio| px
-    d517: float              # |nó indicador - nó mínimo| px
+    d09: float               # |pulso - no medio| px
+    d517: float              # |no indicador - no minimo| px
     center: np.ndarray = field(default=None)
 
     def scale(self, kappa: float) -> float:
@@ -86,7 +86,7 @@ class HandTracker:
             raw = np.array([[p.x * w, p.y * h] for p in lms], dtype=np.float64)
             c = raw[PALM].mean(0)
             d09 = float(np.linalg.norm(raw[0] - raw[9]))
-            # associa à track mais próxima
+            # associa a track mais proxima
             best, bd = None, 0.6 * d09
             for tid, (pc, _) in self._tracks.items():
                 if tid in used:
@@ -114,7 +114,7 @@ class HandTracker:
         self.det.close()
 
 
-# ---------------------------------------------------------------- cabeça
+# ---------------------------------------------------------------- cabeca
 @dataclass
 class HeadObs:
     ok: bool
@@ -125,7 +125,7 @@ class HeadObs:
 
 
 def matrix_to_euler(m: np.ndarray) -> tuple[float, float, float]:
-    """Rotação 3x3 -> (pitch, yaw, roll) em graus (convenção x-y-z)."""
+    """Rotacao 3x3 -> (pitch, yaw, roll) em graus (convencao x-y-z)."""
     r = m[:3, :3]
     sy = math.hypot(r[0, 0], r[1, 0])
     pitch = math.degrees(math.atan2(r[2, 1], r[2, 2]))
@@ -160,8 +160,8 @@ class HeadTracker:
 
 # ---------------------------------------------------------------- bordas
 def assign_edges(hands: list[HandObs], axis_u: float, sticky: dict[str, int]) -> dict[str, HandObs | None]:
-    """Borda pela posição em relação ao eixo ('R' = direita da tela, 'L' = esquerda).
-    sticky: {edge: track_id} das bordas em contato — mantém a mesma mão mesmo se cruzar o eixo."""
+    """Borda pela posicao em relacao ao eixo ('R' = direita da tela, 'L' = esquerda).
+    sticky: {edge: track_id} das bordas em contato - mantem a mesma mao mesmo se cruzar o eixo."""
     out: dict[str, HandObs | None] = {"R": None, "L": None}
     free = list(hands)
     for e, tid in sticky.items():

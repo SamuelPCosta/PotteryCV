@@ -2,8 +2,8 @@
 Rodar o script de novo LIGA/DESLIGA o receptor.
 - Cria/valida o objeto `PotteryVase`: malha de DUAS paredes (externa + interna), borda e fundos fechados.
 - Atributos de ponto: `radius` (atualizado), `theta`, `zn` (0..1), `wall` (0 externa, 1 interna).
-- Propriedade do objeto `pottery_height` (H em m) — ligue o input Height do Geometry Nodes a ela por driver.
-- Escuta UDP :9000 (protocolo specs/protocol.md), aplica a rotação Z = φ e devolve ECHO para :9001.
+- Propriedade do objeto `pottery_height` (H em m) - ligue o input Height do Geometry Nodes a ela por driver.
+- Escuta UDP :9000 (protocolo specs/protocol.md), aplica a rotacao Z = phi e devolve ECHO para :9001.
 """
 import math
 import socket
@@ -38,7 +38,7 @@ def decode_state(data: bytes):
     if c0 + cc > nt or len(data) not in (HDR.size + nr, HDR.size + nr + cc * 2):
         return None
     q = np.frombuffer(data, "<u2", count=cc * nz, offset=HDR.size)
-    if len(data) == HDR.size + nr + cc * 2:      # altura relativa de cada coluna (0..1 × H)
+    if len(data) == HDR.size + nr + cc * 2:      # altura relativa de cada coluna (0..1 x H)
         hf = np.frombuffer(data, "<u2", count=cc, offset=HDR.size + nr).astype(np.float32) / 65535.0
     else:
         hf = np.ones(cc, np.float32)
@@ -52,7 +52,7 @@ def seq_newer(a, b):
 
 
 def build_topology(nt: int, nz: int):
-    """Vértices: externa k=i*nz+j (0..N-1), interna N+k, centro do fundo externo 2N, interno 2N+1."""
+    """Vertices: externa k=i*nz+j (0..N-1), interna N+k, centro do fundo externo 2N, interno 2N+1."""
     N = nt * nz
     faces = []
     for i in range(nt):
@@ -80,7 +80,7 @@ def radius_array(R: np.ndarray) -> np.ndarray:
 
 
 def zn_array(hf: np.ndarray, nz: int) -> np.ndarray:
-    """zn por vértice = altura relativa da coluna × j/(nz−1). O GN faz z = zn · Height (topo varia por coluna)."""
+    """zn por vertice = altura relativa da coluna x j/(nz-1). O GN faz z = zn * Height (topo varia por coluna)."""
     flat = (hf[:, None] * np.linspace(0, 1, nz)[None]).reshape(-1)
     return np.concatenate([flat, flat, [0.0, 0.0]]).astype(np.float32)
 

@@ -1,9 +1,9 @@
-"""PotteryCV — torno de cerâmica virtual.
+"""PotteryCV - torno de ceramica virtual.
 
     python main.py                       # webcam + interface
     python main.py --replay data/sessions/<pasta>
     python main.py --profile outro.json
-    python main.py --viewer              # só o preview, recebendo UDP (teste do gerador sintético)
+    python main.py --viewer              # so o preview, recebendo UDP (teste do gerador sintetico)
 """
 import argparse
 import sys

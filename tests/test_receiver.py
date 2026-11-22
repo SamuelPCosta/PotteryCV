@@ -29,7 +29,7 @@ def test_blender_decode_matches_python_encoder():
 def test_blender_decode_old_format_without_heights():
     R = np.full((8, 4), 0.05, np.float32)
     buf = bytes(encode_state(R, 0.2, 0, 0, 1, 1, 1, 1)[0])
-    old = buf[:64 + 8 * 4 * 2]                            # pacote antigo: só os raios
+    old = buf[:64 + 8 * 4 * 2]                            # pacote antigo: so os raios
     assert (br.decode_state(old)["hfrac"] == 1).all()
 
 

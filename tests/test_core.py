@@ -35,7 +35,7 @@ def test_sweep_seam_and_full_turn():
     assert all(0 <= c < N for c in cols)
     cols, s, _ = sweep(0.0, 0.0, 7.0, N)
     assert len(cols) == N
-    cols, s, _ = sweep(0.0, 1.0, 1.0, N)  # ω = 0
+    cols, s, _ = sweep(0.0, 1.0, 1.0, N)  # omega = 0
     assert len(cols) == 1
 
 
@@ -57,7 +57,7 @@ def test_push_never_increases_and_clamps():
     cfg = Config().vase
     v = Vase(cfg)
     before = v.R.copy()
-    p = _flat_profile(0.0)  # empurra até o eixo
+    p = _flat_profile(0.0)  # empurra ate o eixo
     for k in range(40):
         v.apply("R", k * 0.2, (k + 1) * 0.2, p, p, "PUSH")
     assert (v.R <= before + 1e-6).all()
@@ -65,7 +65,7 @@ def test_push_never_increases_and_clamps():
 
 
 def test_dent_never_comes_back():
-    """Empurrar numa faixa e depois em outra: o sulco antigo não é 'preenchido' de volta (barro não volta)."""
+    """Empurrar numa faixa e depois em outra: o sulco antigo nao e 'preenchido' de volta (barro nao volta)."""
     cfg = Config().vase
     cfg.side_gain, cfg.smooth_lambda = 0.0, 1.0
     v = Vase(cfg)
@@ -75,7 +75,7 @@ def test_dent_never_comes_back():
     for k in range(30, 60):
         v.apply("R", k * 0.3, (k + 1) * 0.3, _flat_profile(0.04, lo=0.6, hi=0.7), _flat_profile(0.04, lo=0.6, hi=0.7), "PUSH")
     assert (v.R <= dent + 1e-7).all()
-    assert v.R[:, int(0.25 * NZ)].mean() < cfg.r0 - 0.01      # o sulco continua lá
+    assert v.R[:, int(0.25 * NZ)].mean() < cfg.r0 - 0.01      # o sulco continua la
 
 
 def test_side_gain_controls_height():  # CA-06 + slider
@@ -99,11 +99,11 @@ def test_press_top_is_local_and_conserves_volume():
     cfg = Config().vase
     v = Vase(cfg)
     v0, r0, h0 = v.volume(), float(v.R.mean()), v.H
-    v.press_top("R", 0.0, 0.3, 0.10)                 # um quadro: só as colunas sob a mão
+    v.press_top("R", 0.0, 0.3, 0.10)                 # um quadro: so as colunas sob a mao
     hit = v.Hc < h0 - 1e-9
-    assert 0 < hit.sum() < 10                         # local, não o topo todo
+    assert 0 < hit.sum() < 10                         # local, nao o topo todo
     assert (v.R[hit].mean(1) > r0).all() and (v.R[~hit] == np.float32(r0)).all()
-    for k in range(1, 400):                           # girando várias voltas: a borda inteira vai baixando
+    for k in range(1, 400):                           # girando varias voltas: a borda inteira vai baixando
         v.press_top("R", k * 0.3, (k + 1) * 0.3, 0.10)
     assert v.Hc.max() == pytest.approx(0.10, abs=2e-3)
     assert v.R.mean() > r0 * 1.15                     # achatou e engordou
@@ -113,7 +113,7 @@ def test_press_top_is_local_and_conserves_volume():
 def test_top_contact_only_from_above():
     c = TopContact(Config().contact)
     H = 0.15
-    assert not c.update(0.10, 0.08, H)        # mão abaixo do topo (pelo lado): não engata
+    assert not c.update(0.10, 0.08, H)        # mao abaixo do topo (pelo lado): nao engata
     assert not c.update(0.20, 0.25, H)        # acima, sem encostar
     assert c.update(0.149, 0.22, H)           # encostou vindo de cima
     assert c.update(0.12, 0.19, H)            # empurrando
@@ -134,17 +134,17 @@ def test_contact_hysteresis_outside_only():
     for i in range(3):
         a = c.update(_flat_profile(0.09), 1, wall, 0.12 + i * 0.03)
     assert a == "NONE" and c.state == "FREE"
-    assert c.update(_flat_profile(0.0), 2, wall, 0.3) == "NONE"     # mão por dentro não engata
+    assert c.update(_flat_profile(0.0), 2, wall, 0.3) == "NONE"     # mao por dentro nao engata
 
 
-# ---------------------------------------------------------------- calibração (2 etapas)
+# ---------------------------------------------------------------- calibracao (2 etapas)
 def test_calibration_hands_gives_axis_scale_and_width():
     from types import SimpleNamespace
     from pottery.calibration import Calibrator
     cfg = Config()
     cal = Calibrator(cfg.calib, cfg.hand, 1280, 720, True)
 
-    def hand(label, x_inner, side):          # mão vertical de lado: 21 pontos numa faixa de 30 px de largura
+    def hand(label, x_inner, side):          # mao vertical de lado: 21 pontos numa faixa de 30 px de largura
         xs = x_inner + side * np.linspace(0, 30, 21)
         ys = np.linspace(500, 300, 21)
         lm = np.stack([xs, ys], 1)
@@ -180,13 +180,13 @@ def test_depth_normalization_pinhole():
         x, _ = prof.to_vase(u, h / 2, s)
         assert abs(x - X) / X < 0.02
         x_raw, _ = prof.to_vase(u, h / 2, 1.0)
-    assert abs(x_raw - X) / X > 0.2  # sem normalização erra muito
+    assert abs(x_raw - X) / X > 0.2  # sem normalizacao erra muito
 
 
 def _two_fingers_mask():
-    """Mão de lado com dois 'dedos' horizontais apontando para o eixo (à esquerda) e vão entre eles."""
+    """Mao de lado com dois 'dedos' horizontais apontando para o eixo (a esquerda) e vao entre eles."""
     m = np.zeros((200, 200), np.uint8)
-    m[40:80, 0:200] = 255    # dedo de cima (chega até u=700)
+    m[40:80, 0:200] = 255    # dedo de cima (chega ate u=700)
     m[120:160, 60:200] = 255  # dedo de baixo, mais curto
     m[40:160, 150:200] = 255  # palma
     return HandMask((700, 300, 900, 500), m, "test")
@@ -197,11 +197,11 @@ def test_profile_follows_fingers_not_convex():
     hm = _two_fingers_mask()
     umin, umax = mask_row_spans(hm, np.array([250.0, 360.0, 400.0, 440.0]))
     assert np.isnan(umin[0])
-    assert umin[1] == 700 and umin[3] == 760 and umin[2] == 850   # no vão entre os dedos só a palma
+    assert umin[1] == 700 and umin[3] == 760 and umin[2] == 850   # no vao entre os dedos so a palma
     H = (prof.base_v - 300) * prof.k
     p = compute_profile(hm, np.zeros((3, 2)), "R", 1.0, prof, H, N, 0.003)
     near = p.r_near[p.cover]
-    assert near.max() - near.min() > 0.5 * 140 * prof.k           # dedo e vão deixam marcas distintas
+    assert near.max() - near.min() > 0.5 * 140 * prof.k           # dedo e vao deixam marcas distintas
     w = feather(np.array([0, 1, 1, 1, 1, 0], bool), 0.004, 0.008)
     assert w[0] == 0 and 0 < w[1] < w[2] <= 1
 
@@ -256,7 +256,7 @@ def _run(sc, pitch, n, t, ok=True):
 
 def test_speed_down_accelerates_up_stops():
     scfg = Config().speed
-    scfg.accel_deg, scfg.brake_deg = 8.0, 4.0  # limites fixos no teste (independem do padrão do config)
+    scfg.accel_deg, scfg.brake_deg = 8.0, 4.0  # limites fixos no teste (independem do padrao do config)
     sc = SpeedController(scfg)             # pitch > 0 = olhando para baixo (pitch_sign = 1)
     t = _run(sc, 3.0, 150, 0.0)            # zona morta
     assert sc.rpm == sc.cfg.min_rpm
@@ -266,14 +266,14 @@ def test_speed_down_accelerates_up_stops():
     t = _run(sc, 15.0, 60, t)              # para baixo sustentado: acelera
     r = sc.rpm
     assert r > 10
-    t = _run(sc, 0.0, 60, t)               # neutra: mantém (± atraso do filtro)
+    t = _run(sc, 0.0, 60, t)               # neutra: mantem (+- atraso do filtro)
     assert sc.rpm == pytest.approx(r, rel=0.03)
     r = sc.rpm
-    t = _run(sc, 0.0, 30, t, ok=False)     # rosto perdido: mantém
+    t = _run(sc, 0.0, 30, t, ok=False)     # rosto perdido: mantem
     assert sc.rpm == pytest.approx(r)
-    t = _run(sc, 6.0, 60, t)               # 6° para baixo (< 8°): ainda mantém
+    t = _run(sc, 6.0, 60, t)               # 6 graus para baixo (< 8 graus): ainda mantem
     assert sc.rpm == pytest.approx(r, rel=0.05)
-    t = _run(sc, -3.0, 60, t)              # 3° para cima (< 4°): mantém
+    t = _run(sc, -3.0, 60, t)              # 3 graus para cima (< 4 graus): mantem
     assert sc.rpm == pytest.approx(r, rel=0.05)
-    t = _run(sc, -6.0, 40, t)              # um pouco para cima (> 4°): para
+    t = _run(sc, -6.0, 40, t)              # um pouco para cima (> 4 graus): para
     assert sc.rpm == sc.cfg.min_rpm

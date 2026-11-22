@@ -1,4 +1,4 @@
-"""Calibração por gestos (cabeça neutra → mãos de lado: escala + eixo + largura do vaso) e conversão pixel → vaso."""
+"""Calibracao por gestos (cabeca neutra -> maos de lado: escala + eixo + largura do vaso) e conversao pixel -> vaso."""
 from __future__ import annotations
 
 import json
@@ -18,19 +18,19 @@ class CalibProfile:
     base_v: float = 0.0
     cx: float = 0.0
     cy: float = 0.0
-    k: float = 0.095 / 120     # m/px na profundidade de calibração
+    k: float = 0.095 / 120     # m/px na profundidade de calibracao
     L_ref: dict = field(default_factory=dict)   # {"Left": px, "Right": px}
     kappa: dict = field(default_factory=dict)
     pitch0: float = 0.0
     yaw0: float = 0.0
     roll0: float = 0.0
-    r0: float = 0.0            # raio inicial do vaso (m) medido pela distância entre as mãos; 0 = usa o config
+    r0: float = 0.0            # raio inicial do vaso (m) medido pela distancia entre as maos; 0 = usa o config
     calibrated: bool = False
     created: str = ""
 
     @staticmethod
     def default(w: int, h: int) -> "CalibProfile":
-        return CalibProfile(w, h, axis_u=w / 2, base_v=float(h), cx=w / 2, cy=h / 2,   # base = rodapé da imagem
+        return CalibProfile(w, h, axis_u=w / 2, base_v=float(h), cx=w / 2, cy=h / 2,   # base = rodape da imagem
                             L_ref={"Left": 120.0, "Right": 120.0}, kappa={"Left": 1.3, "Right": 1.3})
 
     # ---- escala
@@ -42,7 +42,7 @@ class CalibProfile:
     def kappa_for(self, label: str, default=1.3) -> float:
         return self.kappa.get(label, default)
 
-    # ---- conversões (vetorizadas)
+    # ---- conversoes (vetorizadas)
     def to_vase(self, u, v, s=1.0):
         u = np.asarray(u, dtype=np.float64)
         v = np.asarray(v, dtype=np.float64)
@@ -65,8 +65,8 @@ class CalibProfile:
     def load(path, w: int, h: int, mirrored: bool) -> tuple["CalibProfile", str | None]:
         d = json.loads(Path(path).read_text())
         known = {f.name for f in fields(CalibProfile)}
-        p = CalibProfile(**{k: v for k, v in d.items() if k in known})   # ignora chaves de versões antigas
-        p.base_v = float(p.height)      # a base do vaso é sempre o rodapé da imagem (não calibrada)
+        p = CalibProfile(**{k: v for k, v in d.items() if k in known})   # ignora chaves de versoes antigas
+        p.base_v = float(p.height)      # a base do vaso e sempre o rodape da imagem (nao calibrada)
         warn = None
         if (p.width, p.height) != (w, h) or p.mirrored != mirrored:
             warn = f"perfil feito em {p.width}x{p.height} espelho={p.mirrored}; câmera atual {w}x{h} espelho={mirrored} — recalibre"
@@ -74,7 +74,7 @@ class CalibProfile:
 
 
 class _Dwell:
-    """Aceita quando o valor fica estável (desvio < thr) por dwell_s segundos."""
+    """Aceita quando o valor fica estavel (desvio < thr) por dwell_s segundos."""
 
     def __init__(self, dwell_s: float, thr: float):
         self.dwell, self.thr = dwell_s, thr
@@ -105,7 +105,7 @@ INSTR = {
 
 
 class Calibrator:
-    """Cada etapa: mostra a instrução + contagem regressiva ("capturando em 3.. 2.. 1"), depois captura
+    """Cada etapa: mostra a instrucao + contagem regressiva ("capturando em 3.. 2.. 1"), depois captura
     quando a pose fica parada por dwell_s."""
 
     def __init__(self, cfg_calib, cfg_hand, w: int, h: int, mirrored: bool, base: CalibProfile | None = None,
@@ -113,7 +113,7 @@ class Calibrator:
         self.cc, self.ch = cfg_calib, cfg_hand
         self.r_limits = r_limits
         self.prof = CalibProfile.default(w, h)
-        if base is not None:            # mantém o alinhamento antigo visível enquanto recalibra
+        if base is not None:            # mantem o alinhamento antigo visivel enquanto recalibra
             self.prof.axis_u, self.prof.k = base.axis_u, base.k
             self.prof.L_ref, self.prof.kappa = dict(base.L_ref), dict(base.kappa)
         self.prof.mirrored = mirrored
@@ -171,11 +171,11 @@ class Calibrator:
         hs = sorted(hands, key=lambda h: h.center[0])           # [esquerda da tela, direita da tela]
         vec = np.concatenate([hs[0].center, hs[1].center])
         self.dw.thr = self.cc.still_px
-        # borda interna de cada mão (a voltada para o vaso) + comprimento pulso -> nó do médio (visível de lado)
+        # borda interna de cada mao (a voltada para o vaso) + comprimento pulso -> no do medio (visivel de lado)
         payload = [(h.handedness, h.d09) for h in hs] + [float(hs[0].lm[:, 0].max()), float(hs[1].lm[:, 0].min())]
         if not self.dw.push(t, vec, payload):
             return None
-        # HANDS: escala + eixo + largura do vaso numa captura só
+        # HANDS: escala + eixo + largura do vaso numa captura so
         per: dict[str, list] = {}
         inner_l, inner_r = [], []
         for _, _, pl in self.dw.buf:
@@ -185,7 +185,7 @@ class Calibrator:
             inner_r.append(pl[3])
         for lab, arr in per.items():
             self.prof.L_ref[lab] = float(np.median(arr))
-            self.prof.kappa.setdefault(lab, self.ch.kappa_default)   # largura da palma não aparece de lado
+            self.prof.kappa.setdefault(lab, self.ch.kappa_default)   # largura da palma nao aparece de lado
         L = float(np.mean(list(self.prof.L_ref.values())))
         self.prof.k = self.ch.L_real_m / L
         rad = self.ch.finger_radius * L                              # landmarks ficam no centro dos dedos

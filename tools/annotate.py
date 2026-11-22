@@ -1,10 +1,10 @@
-"""Anotação manual de máscaras de mão (polígono) sobre quadros de uma sessão gravada — referência do E1.
+"""Anotacao manual de mascaras de mao (poligono) sobre quadros de uma sessao gravada - referencia do E1.
 
     python tools/annotate.py data/sessions/<pasta> --n 40
 
-Clique esquerdo: adiciona ponto · clique direito ou Enter: fecha o polígono da mão atual
-U: desfaz ponto · N: próximo quadro (salva) · S: pula quadro · Q: sai
-Saída: <sessão>/annot/<frame_id>.png  (0 = fundo, 1 = 1ª mão, 2 = 2ª mão)
+Clique esquerdo: adiciona ponto * clique direito ou Enter: fecha o poligono da mao atual
+U: desfaz ponto * N: proximo quadro (salva) * S: pula quadro * Q: sai
+Saida: <sessao>/annot/<frame_id>.png  (0 = fundo, 1 = 1a mao, 2 = 2a mao)
 """
 import argparse
 import csv

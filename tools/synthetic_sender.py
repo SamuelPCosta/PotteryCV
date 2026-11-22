@@ -1,4 +1,4 @@
-"""Gerador de vaso sintético animado (sem câmera) — testa o receptor do Blender e o viewer.
+"""Gerador de vaso sintetico animado (sem camera) - testa o receptor do Blender e o viewer.
 
     python tools/synthetic_sender.py                    # 128x128, 30 Hz, Blender :9000 + viewer :9002
     python tools/synthetic_sender.py --drop 0.2 --pattern bulge --height-wave
