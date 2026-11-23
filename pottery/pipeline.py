@@ -27,6 +27,9 @@ def _ascii(s: str) -> str:
 
 STATE_COLORS ={"FREE": (170, 170, 170), "PUSH": (0, 140, 255), "PRESS": (255, 80, 200)}
 CLAY = (60, 110, 200)
+EDGE_MARGIN = 40          # px livres no topo do medidor da cabeca e embaixo da roda
+SHADE_W = 350             # largura da faixa escurecida atras do medidor e da roda (px)
+SHADE_MAX = 0.9           # escurecimento na borda direita (0.8 = 80% de preto)
 
 
 class Pipeline(QThread):
@@ -376,17 +379,35 @@ class Pipeline(QThread):
             cols={e: self.vase.col_index(e) for e in ("R", "L")}))
 
     # ---------------------------------------------------------------- overlay
+    def _shade_right(self, img):
+        """Gradiente na faixa da direita (por baixo do medidor e da roda): transparente na esquerda,
+        SHADE_MAX de preto na borda."""
+        Hh, W = img.shape[:2]
+        w = min(SHADE_W, W)
+        if getattr(self, "_shade", None) is None or self._shade.shape[:2] != (Hh, w):   # calcula uma vez so
+            g = np.round(255 * (1 - np.linspace(0, SHADE_MAX, w))).astype(np.uint8)
+            self._shade = np.repeat(np.tile(g[None, :, None], (Hh, 1, 1)), 3, axis=2)
+        roi = img[:, W - w:]
+        cv2.multiply(roi, self._shade, dst=roi, scale=1 / 255)       # em uint8 direto: bem mais rapido
+
     def _draw_head_gauge(self, img):
-        """Medidor vertical da inclinacao da cabeca (baixo acelera, cima para), sempre visivel, colado na direita."""
+        """Medidor vertical da inclinacao da cabeca (baixo acelera, cima freia), sempre visivel.
+        Fica centrado na mesma coluna da roda; devolve o x dessa coluna."""
         sc = self.cfg.speed
         H_img, W_img = img.shape[:2]
         F = cv2.FONT_HERSHEY_SIMPLEX
         full = 25.0                                                      # graus no fim da escala
         gw, gh = 44, min(380, H_img - 140)
-        gx = W_img - gw - 24                                             # colado na borda direita
-        gc = H_img // 2 - 160
+        col_x = W_img - EDGE_MARGIN - self.base.shape[0] // 2           # meio da coluna da roda
+        gx = col_x - gw // 2                                             # barra centrada nessa coluna
+        th = cv2.getTextSize("Freia", F, 0.7, 2)[0][1]                   # altura do texto dos rotulos
+        gc = EDGE_MARGIN + th + 10 + gh // 2                             # "Freia" a EDGE_MARGIN do topo, barra 10 px abaixo
         top, bot = gc - gh // 2, gc + gh // 2
         px = lambda deg: int(gc + np.clip(deg / full, -1, 1) * gh / 2)   # para baixo = mais abaixo
+
+        def text_center(s, y, scale, color):                             # texto centrado na coluna da barra
+            tw = cv2.getTextSize(s, F, scale, 2)[0][0]
+            cv2.putText(img, s, (col_x - tw // 2, y), F, scale, color, 1, cv2.LINE_AA)
 
         def text_left(s, y, scale, color):                               # texto alinhado a esquerda da barra
             tw = cv2.getTextSize(s, F, scale, 2)[0][0]
@@ -395,31 +416,32 @@ class Pipeline(QThread):
         cv2.rectangle(img, (gx, top), (gx + gw, px(-sc.brake_deg)), (60, 60, 200), -1)          # zona "para"
         cv2.rectangle(img, (gx, px(sc.accel_deg)), (gx + gw, bot), (60, 180, 60), -1)           # zona "acelera"
         cv2.rectangle(img, (gx, px(-sc.brake_deg)), (gx + gw, px(sc.accel_deg)), (120, 120, 120), -1)
-        cv2.rectangle(img, (gx, top), (gx + gw, bot), (240, 240, 240), 2)
-        cv2.line(img, (gx, gc), (gx + gw, gc), (240, 240, 240), 1)                               # neutro
-        text_left("Freia", top + 26, 0.7, (120, 120, 255))
-        text_left("Acelera", bot - 6, 0.7, (120, 255, 120))
+        #cv2.rectangle(img, (gx, top), (gx + gw, bot), (240, 240, 240), 2)
+        cv2.line(img, (gx, gc), (gx + gw, gc), (255, 255, 255), 1)                               # neutro
+        text_center("Freia", top - 10, 0.7, (120, 120, 255))            # acima da barra
+        text_center("Acelera", bot + 10 + th, 0.7, (120, 255, 120))     # abaixo da barra
         if self.head.ok:
             d = sc.pitch_sign * (self.head.pitch - self.prof.pitch0)    # > 0 = olhando para baixo
             y = px(d)
-            cv2.line(img, (gx - 16, y), (gx + gw + 10, y), (0, 255, 255), 6)
-            text_left(f"{d:+.1f} deg", y + 10, 1.0, (0, 255, 255))
+            cv2.line(img, (gx - 16, y), (gx + gw + 10, y), (255, 255, 255), 6)
+            text_left(f"{d:+.1f} deg", y + 10, 1.0, (255, 255, 255))
             if self.show_lm and self.head.bbox:                          # retangulo do rosto so no debug
                 x0, y0, x1, y1 = self.head.bbox
                 cv2.rectangle(img, (x0, y0), (x1, y1), (255, 200, 0), 1)
         else:
             text_left("Sem rosto", gc + 10, 0.7, (200, 200, 200))
         status = _ascii(self.speed.status)
-        tw = cv2.getTextSize(status, F, 0.8, 2)[0][0]
-        cv2.putText(img, status, (W_img - tw - 16, bot + 40), F, 0.8, (255, 255, 255), 2, cv2.LINE_AA)
-        return gx + gw, bot + 40          # borda direita da barra e linha do texto de status
+        st_scale = 0.6                                                   # tamanho do texto de status
+        tw = cv2.getTextSize(status, F, st_scale, 2)[0][0]              # mesma escala do putText: senao descentraliza
+        cv2.putText(img, status, (col_x - tw // 2, bot + 2 * th + 34), F, st_scale, (255, 255, 255), 2, cv2.LINE_AA)
+        return col_x
 
-    def _draw_wheel(self, img, right):
-        """Seta do torno girando com phi e as rpm, colada no rodape, alinhada com o medidor."""
+    def _draw_wheel(self, img, cx):
+        """Seta do torno girando com phi e as rpm, colada no rodape; cx = meio da coluna do medidor."""
         Hh, Ww = img.shape[:2]
         s = self.base.shape[0]
-        cx = right - s // 2                   # alinhada pela direita com a barra do medidor
-        cy = Hh - 40 - s // 2                 # colada no rodape (40 px livres embaixo para as rpm)
+        base = Hh - EDGE_MARGIN               # linha de base do texto das rpm: EDGE_MARGIN acima do rodape
+        cy = base - 28 - s // 2               # seta logo acima do texto
         m = cv2.getRotationMatrix2D((s / 2, s / 2), math.degrees(self.vase.phi), 1.0)
         rot = cv2.warpAffine(self.base, m, (s, s), borderValue=(0, 0, 0, 0))
         x0, y0 = cx - s // 2, cy - s // 2                    # fatiar exige inteiros: // em vez de /
@@ -430,7 +452,7 @@ class Pipeline(QThread):
         roi[:] = (rot[:, :, :3] + roi * (1 - a)).astype(np.uint8)   # seta ja pre-multiplicada
         txt = f"{self.speed.rpm:.0f} rpm"
         tw = cv2.getTextSize(txt, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0][0]
-        cv2.putText(img, txt, (cx - tw // 2, y0 + s + 28), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
+        cv2.putText(img, txt, (cx - tw // 2, base), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
 
     def _draw_topology_lines(self, img, n=12, color=(25, 55, 110)):
         """Linhas de topologia: verticais presas ao barro (theta fixo), correm pela frente do vaso conforme ele gira."""
@@ -507,8 +529,8 @@ class Pipeline(QThread):
             cv2.putText(img, f"{e}:{st}", (int(h.center[0]) - 30, int(h.center[1])),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, col, 2, cv2.LINE_AA)
         H, W = img.shape[:2]
-        right, _ = self._draw_head_gauge(img)
-        self._draw_wheel(img, right)
+        self._shade_right(img)
+        self._draw_wheel(img, self._draw_head_gauge(img))
         if self.state == "CALIBRATING" and self.calib:
             cb = self.calib
             cv2.rectangle(img, (0, 0), (W, 95), (0, 0, 0), -1)
