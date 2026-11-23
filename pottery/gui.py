@@ -2,15 +2,20 @@
 from __future__ import annotations
 
 import math
+from html import escape
+from pathlib import Path
 
 import cv2
 import numpy as np
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtGui import QFont, QImage, QKeySequence, QPixmap, QShortcut
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QGridLayout, QHBoxLayout, QLabel, QMainWindow,
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QMainWindow,
                                QPushButton, QSizePolicy, QSlider, QSplitter, QVBoxLayout, QWidget)
 
 from .contour import EXTRACTORS
+
+ACCENT = "#007788"        # cor de destaque: botoes, caixinhas marcadas e seletor de extrator
+CHECK_ICON = (Path(__file__).resolve().parents[1] / "assets" / "check.svg").as_posix()   # tique das caixinhas
 
 try:
     import pyqtgraph.opengl as gl
@@ -19,7 +24,7 @@ except Exception:   # sem OpenGL: fallback 2D
     _HAS_GL = False
 
 
-def to_pixmap(bgr: np.ndarray, size) -> QPixmap:
+def to_pixmap(bgr: np.ndarray, size, keep_aspect: bool = True) -> QPixmap:
     """BGR (3 canais) ou BGRA pre-multiplicado (4 canais, com transparencia) -> QPixmap."""
     h, w = bgr.shape[:2]
     if bgr.ndim == 3 and bgr.shape[2] == 4:
@@ -28,7 +33,8 @@ def to_pixmap(bgr: np.ndarray, size) -> QPixmap:
     else:
         rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
         qi = QImage(rgb.data, w, h, 3 * w, QImage.Format.Format_RGB888).copy()
-    return QPixmap.fromImage(qi).scaled(size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+    mode = Qt.AspectRatioMode.KeepAspectRatio if keep_aspect else Qt.AspectRatioMode.IgnoreAspectRatio
+    return QPixmap.fromImage(qi).scaled(size, mode, Qt.TransformationMode.SmoothTransformation)
 
 
 def vase_mesh(n_theta: int, n_z: int) -> np.ndarray:
@@ -86,10 +92,45 @@ def rmap_image(R: np.ndarray, r_max: float, cols: dict | None) -> np.ndarray:
     return img
 
 
+def debug_html(rows) -> str:
+    """Tabela rotulo | valor: o valor quebra linha e as linhas seguintes ficam alinhadas na coluna do valor."""
+    tr = "".join(f"<tr><td width='1%' style='white-space:pre; padding-right:10px'>{escape(k)}</td>"
+                 f"<td style='white-space:pre-wrap'>{escape(v)}</td></tr>" for k, v in rows)
+    return f"<table width='100%' cellspacing='0' cellpadding='0'>{tr}</table>"
+
+
+def titled(title: str, widget: QWidget, pad: int = 0) -> QWidget:
+    """Painel com cabecalho "Titulo ---------" em cima do widget; title vazio = so o widget.
+    pad: margem interna entre o painel e o conteudo, em px."""
+    keep = QFont(widget.font())                      # fonte original do conteudo
+    keep.setPointSizeF(keep.pointSizeF())            # marca tamanho e peso como definidos: senao o Qt
+    keep.setBold(keep.bold())                        # ainda herda do painel (fonte "padrao" nao conta)
+    box = QWidget()
+    lay = QVBoxLayout(box)
+    lay.setContentsMargins(pad, pad, pad, pad)
+    if title:
+        head = QHBoxLayout()
+        head.setSpacing(20)                          # 20 px entre o texto e a linha
+        lbl = QLabel(title)
+        f = lbl.font()
+        f.setPointSizeF(f.pointSizeF() * 1.6)
+        f.setBold(True)
+        lbl.setFont(f)
+        line = QFrame()
+        line.setFixedHeight(1)
+        line.setStyleSheet("background:#555")
+        head.addWidget(lbl)
+        head.addWidget(line, 1, Qt.AlignmentFlag.AlignVCenter)   # estica ate a direita, no meio do texto
+        lay.addLayout(head)
+    lay.addWidget(widget, 1)
+    widget.setFont(keep)
+    return box
+
+
 class MainWindow(QMainWindow):
     def __init__(self, cfg, pipeline=None, receiver=None):
         super().__init__()
-        self.setStyleSheet("background:#111;color:#aaa")
+        self.setStyleSheet("QWidget { background:#111; color:#aaa; }")
         self.cfg, self.pipe, self.rx = cfg, pipeline, receiver
         self.setWindowTitle("PotteryCV — " + ("viewer" if receiver else "Torno virtual"))
         self.resize(1500, 900)
@@ -104,29 +145,32 @@ class MainWindow(QMainWindow):
         self.debug.setFont(QFont("Consolas", 9))
         self.debug.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.debug.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        self.debug.setWordWrap(True)                  # linhas longas quebram (ver debug_html)
 
-        dbg_row = QWidget()
-        dl = QHBoxLayout(dbg_row)
-        dl.setContentsMargins(0, 0, 0, 0)
-        dl.setSpacing(8)
-        dl.addWidget(self.rmap, 3)
-        right = QSplitter(Qt.Orientation.Vertical)
-        right.addWidget(dbg_row)
-        right.setSizes([600, 250])
-        top = QSplitter(Qt.Orientation.Horizontal)
+        left = QSplitter(Qt.Orientation.Vertical)
         if pipeline is not None:
-            top.addWidget(self.video)
-        top.addWidget(right)
-        top.setSizes([950, 550] if pipeline is not None else [1])
-        bottom = QWidget()
-        bl = QHBoxLayout(bottom)
-        bl.addWidget(self.debug, 3)
+            left.addWidget(titled("", self.video))
+        left.addWidget(titled("", self.rmap))
+        left.setSizes([515, 335])
+
+        right = QSplitter(Qt.Orientation.Vertical)    # splitter organiza os filhos sozinho: sem layout
+        right.setContentsMargins(0, 12, 0, 0)         # margem no topo, acima de Controles
         if pipeline is not None:
-            bl.addWidget(self._controls(), 4)
-        root = QSplitter(Qt.Orientation.Vertical)
-        root.addWidget(top)
-        root.addWidget(bottom)
-        root.setSizes([700, 200])
+            right.addWidget(titled("Controles", self._controls(), pad=16))
+        right.addWidget(titled("Debug", self.debug, pad=16))
+        right.setSizes([250, 600])
+        right.setFixedWidth(500)                      # painel da direita sempre com 250 px
+        
+        root = QSplitter(Qt.Orientation.Horizontal)
+        root.setHandleWidth(4)
+        # linha clara mostra onde arrastar; precisa ser no proprio splitter (no da janela o QWidget{} ganha)
+        root.setStyleSheet("QSplitter::handle:horizontal { background: #666; }"
+                           "QSplitter::handle:horizontal:hover { background: #aaa; }")
+        root.addWidget(left)
+        root.addWidget(right)
+        root.setStretchFactor(0, 1)                   # ao redimensionar a janela, so a esquerda cresce
+        root.setStretchFactor(1, 0)
+        root.setSizes([10000, 1])                     # direita comeca no tamanho minimo dela
         self.setCentralWidget(root)
 
         if pipeline is not None:
@@ -140,11 +184,19 @@ class MainWindow(QMainWindow):
     # ---------------------------------------------------------------- controles
     def _controls(self) -> QWidget:
         w = QWidget()
+        # caixinhas e seletor na cor ACCENT; ao estilizar o indicador o Qt some com o tique, entao vai um svg
+        w.setStyleSheet(
+            "QCheckBox::indicator { width: 14px; height: 14px; border: 1px solid #666;"
+            " border-radius: 3px; background: #222; }"
+            f"QCheckBox::indicator:checked {{ background: {ACCENT}; border-color: {ACCENT}; image: url({CHECK_ICON}); }}"
+            f"QComboBox {{ background: {ACCENT}; color: #fff; border-radius: 4px; padding: 4px 8px; }}"
+            f"QComboBox QAbstractItemView {{ background: #222; color: #fff; selection-background-color: {ACCENT}; }}")
         g = QGridLayout(w)
         cmd = self.pipe.command
 
         def button(text, name, checkable=False):
             b = QPushButton(text)
+            b.setStyleSheet(f"background:{ACCENT};color:#fff; border-radius: 4px; padding: 6px;")
             b.setCheckable(checkable)
             if checkable:
                 b.toggled.connect(lambda v: cmd(name, v))
@@ -155,13 +207,12 @@ class MainWindow(QMainWindow):
         self.b_rec = button("Gravar sessão", "record", True)
         self.setStyleSheet("background:#aaa;color:#111")
         g.addWidget(button("Calibrar [C]", "calibrate"), 0, 0)
-        g.addWidget(button("Cancelar calibração", "cancel_calibration"), 0, 1)
-        g.addWidget(button("Reset vaso [R]", "reset"), 0, 2)
-        g.addWidget(self.b_rec, 0, 3)
+        g.addWidget(button("Reset vaso [R]", "reset"), 0, 1)
+        g.addWidget(self.b_rec, 0, 2)
         dbg = QCheckBox("Debug [D]")
         dbg.setToolTip("mostra os landmarks numerados e o medidor de inclinação da cabeça")
         dbg.toggled.connect(lambda v: cmd("show_landmarks", v))
-        g.addWidget(dbg, 0, 4)
+        g.addWidget(dbg, 0, 3)
         QShortcut(QKeySequence("D"), self, dbg.toggle)
 
         g.addWidget(QLabel("Extrator"), 1, 0)
@@ -215,20 +266,24 @@ class MainWindow(QMainWindow):
             self.debug.setText(r.get("message", ""))
             return
         self.video.setPixmap(to_pixmap(r["image"], self.video.size()))
-        self.rmap.setPixmap(to_pixmap(rmap_image(r["R"], self.cfg.vase.r_max, r["cols"]), self.rmap.size()))
+        vw = self.video.pixmap().width() or self.rmap.width()   # mapa na mesma largura da imagem da camera
+        self.rmap.setPixmap(to_pixmap(rmap_image(r["R"], self.cfg.vase.r_max, r["cols"]),
+                                      QSize(vw, self.rmap.height()), keep_aspect=False))
         ms = r["ms"]
         pen = {e: (f"{v * 1000:+.1f}mm" if v == v else "  —  ") for e, v in r["pen"].items()}
-        self.debug.setText(
-            f"estado   {r['state']}   {'● GRAVANDO' if r['recording'] else ''}\n"
-            f"calib    {r['calib_step']}\n"
-            f"FPS      {r['fps']:5.1f}   mãos {r['n_hands']}\n"
-            f"ms       mãos {ms['hands']:5.1f}  rosto {ms['face']:5.1f}  contorno {ms['contour']:5.1f}  sim {ms['sim']:5.1f}  total {ms['total']:5.1f}\n"
-            f"torno    {r['rpm']:5.1f} rpm  ({r['speed_status']})   cabeça {r['pitch_delta']:+5.1f}° "
-            f"({'↓ baixo' if r['pitch_delta'] > 0 else '↑ cima'})  rosto {'ok' if r['head_ok'] else '—'}\n"
-            f"vaso     H {r['H'] * 100:5.1f} cm   V/V0 {r['volume']:.3f}   φ {math.degrees(r['phi']) % 360:5.1f}°\n"
-            f"contato  L {r['contacts']['L']:<5} {pen['L']}   R {r['contacts']['R']:<5} {pen['R']}\n"
-            f"extrator {r['extractor']}   idade máscara {r['seg_age']}   SAM {r['seg_ms']:.0f} ms\n"
-            f"msg      {r['message']}")
+        self.debug.setText(debug_html([
+            ("estado", f"{r['state']}   {'● GRAVANDO' if r['recording'] else ''}"),
+            ("calib", f"{r['calib_step']}"),
+            ("FPS", f"{r['fps']:5.1f}   mãos {r['n_hands']}"),
+            ("ms", f"mãos {ms['hands']:5.1f}  rosto {ms['face']:5.1f}  contorno {ms['contour']:5.1f}  "
+                   f"sim {ms['sim']:5.1f}  total {ms['total']:5.1f}"),
+            ("torno", f"{r['rpm']:5.1f} rpm  ({r['speed_status']})   cabeça {r['pitch_delta']:+5.1f}° "
+                      f"({'↓ baixo' if r['pitch_delta'] > 0 else '↑ cima'})  rosto {'ok' if r['head_ok'] else '—'}"),
+            ("vaso", f"H {r['H'] * 100:5.1f} cm   V/V0 {r['volume']:.3f}   φ {math.degrees(r['phi']) % 360:5.1f}°"),
+            ("contato", f"L {r['contacts']['L']:<5} {pen['L']}   R {r['contacts']['R']:<5} {pen['R']}"),
+            ("extrator", f"{r['extractor']}   idade máscara {r['seg_age']}   SAM {r['seg_ms']:.0f} ms"),
+            ("msg", f"{r['message']}"),
+        ]))
 
     def poll_receiver(self):
         if self.rx.poll() and self.rx.R is not None:
