@@ -179,7 +179,7 @@ class Vase:
 
     def press_top(self, edge: str, phi0: float, phi1: float, z_target: float) -> bool:
         """Mao empurrando o topo para baixo: so as colunas que passam sob a mao (varredura de arco) abaixam,
-        e engordam (R*sqrt(H_antes/H_novo)) conservando o volume daquela coluna."""
+        alargam e fazem barriga (pico a 1/3 da altura), conservando o volume daquela coluna."""
         c = self.cfg
         cols, _, _ = sweep(EDGE_THETA[edge], phi0, phi1, self.n_theta)
         if len(cols) == 0:
@@ -190,7 +190,13 @@ class Vase:
             return False
         cols, h = cols[hit], h[hit]
         h_new = np.maximum(c.h_min, h - c.alpha * c.top_rate * (h - z_target))
-        self.R[cols] *= np.sqrt(h / h_new).astype(np.float32)[:, None]
+        # o barro que sai da altura alarga a coluna toda e ainda faz barriga: soma em R^2 um perfil
+        # = metade por igual + metade com pico em 1/3 da altura. Volume = pi*Hc*media_z(R^2) continua exato.
+        R2 = self.R[cols].astype(np.float64) ** 2
+        m = R2 @ self._wz                                    # media_z(R^2) antes
+        w = 1.0 + 12.0 * self._zn * (1 - self._zn) ** 2     # 1 = alarga tudo; 12*zn*(1-zn)^2 = barriga (media ~1)
+        add = (m * (h / h_new - 1) / (w @ self._wz))[:, None] * w[None]
+        self.R[cols] = np.sqrt(R2 + add).astype(np.float32)
         np.clip(self.R, c.r_min, c.r_max, out=self.R)
         self.Hc[cols] = h_new
         self.version += 1
