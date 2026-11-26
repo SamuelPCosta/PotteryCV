@@ -94,9 +94,11 @@ class Pipeline(QThread):
         self.reset_at: float | None = None   # contagem do reinicio apos esmagar
         self.reset_left = 0.0
         self.show_lm = False
+        self._touching = False               # alguma mao mexendo no vaso no quadro anterior
+        self._pre_touch = None               # estado do vaso antes do toque atual (vai para o desfazer)
 
     def _apply_profile(self):
-        """Aplica o perfil ao vaso: altura maxima = 80% da imagem (base no rodape) e raio inicial
+        """Aplica o perfil ao vaso: altura maxima = 80% da imagem (base a 90%: sobra 10% em cima) e raio inicial
         = largura medida entre as maos na calibracao (se houver). Reinicia o cilindro."""
         p, cv = self.prof, self.cfg.vase
         cv.h_max = 0.8 * p.height * p.k
@@ -130,10 +132,19 @@ class Pipeline(QThread):
         elif name == "cancel_calibration" and self.calib:
             self.calib, self.state = None, "MODELING"
         elif name == "reset":
+            self.vase.push_undo()               # reset tambem pode ser desfeito
             self.vase.reset()
             for e in self.contacts.values():
                 e._free()
             self.speed.rpm = c.speed.min_rpm
+        elif name == "undo":
+            if self.vase.undo():
+                self.reset_at = None            # desfez o esmagamento: cancela o reinicio
+                for e in self.contacts.values():
+                    e._free()
+                self.message = f"desfeito ({self.vase.undo_left} restantes)"
+            else:
+                self.message = "nada para desfazer"
         elif name == "pause":
             self.paused = bool(val)
         elif name == "record":
@@ -314,6 +325,8 @@ class Pipeline(QThread):
                 self.vase.reset()
                 self.reset_at, crushing = None, False
                 self.message = "vaso reiniciado"
+        if not self._touching:
+            self._pre_touch = self.vase.snapshot()   # barato (96x64): guarda o estado sem toque
         for e in ("R", "L"):
             h = edges[e]
             k = self.contacts[e]
@@ -332,6 +345,10 @@ class Pipeline(QThread):
             prev = self.prev_prof[e] if act != "NONE" else None
             self.vase.apply(e, phi0, phi1, prev, profiles.get(e), act)
             self.prev_prof[e] = profiles.get(e) if act != "NONE" else None
+        touching = any(k.state != "FREE" for k in self.contacts.values()) or any(t.state == "PRESS" for t in self.tops.values())
+        if touching and not self._touching and self._pre_touch is not None:
+            self.vase.push_undo(self._pre_touch)     # comecou um toque: o estado de antes vira um passo do Ctrl+Z
+        self._touching = touching
         t4 = time.perf_counter()
         ms["sim"] = (t4 - t3) * 1000
 
@@ -516,8 +533,8 @@ class Pipeline(QThread):
                 s = self.scale_s.get(h.track_id, 1.0) if self.cfg.hand.depth_norm else 1.0
                 sgn = 1 if e == "R" else -1
                 cvz = z[p.cover]
-                pu = prof.x_to_u(sgn * p.r_near[p.cover], s)
-                pv = prof.z_to_v(cvz, s)
+                pu = prof.x_to_u(sgn * p.r_near[p.cover], s, p.anchor)
+                pv = prof.z_to_v(cvz, s, p.anchor)
                 cv2.polylines(img, [np.stack([pu, pv], 1).astype(np.int32)], False, (255, 255, 0), 1, cv2.LINE_AA)
             if self.state == "CALIBRATING" or self.show_lm:
                 for chain in ct.FINGERS:

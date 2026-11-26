@@ -8,6 +8,8 @@ from pathlib import Path
 
 import numpy as np
 
+BASE_FRAC = 0.9     # base do vaso a 90% da altura da imagem (10% acima do rodape: mais facil de alcancar)
+
 
 @dataclass
 class CalibProfile:
@@ -30,7 +32,7 @@ class CalibProfile:
 
     @staticmethod
     def default(w: int, h: int) -> "CalibProfile":
-        return CalibProfile(w, h, axis_u=w / 2, base_v=float(h), cx=w / 2, cy=h / 2,   # base = rodape da imagem
+        return CalibProfile(w, h, axis_u=w / 2, base_v=BASE_FRAC * h, cx=w / 2, cy=h / 2,   # base = BASE_FRAC da imagem
                             L_ref={"Left": 120.0, "Right": 120.0}, kappa={"Left": 1.3, "Right": 1.3})
 
     # ---- escala
@@ -43,18 +45,25 @@ class CalibProfile:
         return self.kappa.get(label, default)
 
     # ---- conversoes (vetorizadas)
-    def to_vase(self, u, v, s=1.0):
-        u = np.asarray(u, dtype=np.float64)
-        v = np.asarray(v, dtype=np.float64)
-        x = self.k * ((u - self.cx) / s - (self.axis_u - self.cx))
-        z = self.k * ((self.base_v - self.cy) - (v - self.cy) / s)
-        return x, z
+    # s = escala de profundidade da mao (> 1 = mais perto da camera). A correcao encolhe as coordenadas por s
+    # em volta de `anchor` (px): no centro da imagem (None) e a perspectiva pura, mas a mao "escorrega" na tela;
+    # no ponto de contato da propria mao, so a espessura e corrigida e o contato fica onde aparece.
+    def _anchor(self, anchor):
+        return (self.cx, self.cy) if anchor is None else anchor
 
-    def z_to_v(self, z, s=1.0):
-        return self.cy + s * ((self.base_v - self.cy) - np.asarray(z) / self.k)
+    def to_vase(self, u, v, s=1.0, anchor=None):
+        au, av = self._anchor(anchor)
+        u = au + (np.asarray(u, dtype=np.float64) - au) / s
+        v = av + (np.asarray(v, dtype=np.float64) - av) / s
+        return self.k * (u - self.axis_u), self.k * (self.base_v - v)
 
-    def x_to_u(self, x, s=1.0):
-        return self.cx + s * (np.asarray(x) / self.k + (self.axis_u - self.cx))
+    def z_to_v(self, z, s=1.0, anchor=None):
+        av = self._anchor(anchor)[1]
+        return av + s * (self.base_v - np.asarray(z) / self.k - av)
+
+    def x_to_u(self, x, s=1.0, anchor=None):
+        au = self._anchor(anchor)[0]
+        return au + s * (np.asarray(x) / self.k + self.axis_u - au)
 
     # ---- arquivo
     def save(self, path):
@@ -66,7 +75,7 @@ class CalibProfile:
         d = json.loads(Path(path).read_text())
         known = {f.name for f in fields(CalibProfile)}
         p = CalibProfile(**{k: v for k, v in d.items() if k in known})   # ignora chaves de versoes antigas
-        p.base_v = float(p.height)      # a base do vaso e sempre o rodape da imagem (nao calibrada)
+        p.base_v = BASE_FRAC * p.height   # a base do vaso e fixa (nao calibrada): BASE_FRAC da imagem
         warn = None
         if (p.width, p.height) != (w, h) or p.mirrored != mirrored:
             warn = f"perfil feito em {p.width}x{p.height} espelho={p.mirrored}; câmera atual {w}x{h} espelho={mirrored} — recalibre"
@@ -191,7 +200,7 @@ class Calibrator:
         rad = self.ch.finger_radius * L                              # landmarks ficam no centro dos dedos
         il, ir = float(np.median(inner_l)) + rad, float(np.median(inner_r)) - rad
         self.prof.axis_u = (il + ir) / 2
-        self.prof.base_v = float(self.prof.height)
+        self.prof.base_v = BASE_FRAC * self.prof.height
         lo, hi = self.r_limits
         self.prof.r0 = float(np.clip(self.prof.k * (ir - il) / 2, lo, hi))
         self.prof.calibrated = True

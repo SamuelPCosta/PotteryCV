@@ -110,6 +110,19 @@ def test_press_top_is_local_and_conserves_volume():
     assert abs(v.volume() - v0) / v0 < 0.01
 
 
+def test_undo_restores_previous_states():
+    v = Vase(Config().vase)
+    r0, h0 = v.R.copy(), v.Hc.copy()
+    v.push_undo()
+    v.press_top("R", 0.0, 3.0, 0.10)
+    r1, h1 = v.R.copy(), v.Hc.copy()
+    v.push_undo()
+    v.reset()
+    assert v.undo() and np.array_equal(v.R, r1) and np.array_equal(v.Hc, h1)   # desfaz o reset
+    assert v.undo() and np.array_equal(v.R, r0) and np.array_equal(v.Hc, h0)   # desfaz o esmagamento
+    assert not v.undo()                                                        # pilha vazia
+
+
 def test_top_contact_only_from_above():
     c = TopContact(Config().contact)
     H = 0.15
@@ -162,7 +175,7 @@ def test_calibration_hands_gives_axis_scale_and_width():
     assert prof.axis_u == pytest.approx(640.0)
     rad = cfg.hand.finger_radius * 150.0
     assert prof.r0 == pytest.approx(prof.k * (200 - 2 * rad) / 2)
-    assert prof.base_v == 720
+    assert prof.base_v == pytest.approx(0.9 * 720)
 
 
 # ---------------------------------------------------------------- geometria
@@ -204,6 +217,18 @@ def test_profile_follows_fingers_not_convex():
     assert near.max() - near.min() > 0.5 * 140 * prof.k           # dedo e vao deixam marcas distintas
     w = feather(np.array([0, 1, 1, 1, 1, 0], bool), 0.004, 0.008)
     assert w[0] == 0 and 0 < w[1] < w[2] <= 1
+
+
+def test_depth_norm_keeps_contact_in_place():
+    prof = CalibProfile.default(1280, 720)
+    anchor = (700.0, 200.0)                                  # contato acima do centro da imagem
+    z1 = prof.to_vase(*anchor, 1.0)[1]
+    for s in (0.8, 1.3):
+        x, z = prof.to_vase(*anchor, s, anchor)
+        assert z == pytest.approx(z1) and x == pytest.approx(prof.to_vase(*anchor, 1.0)[0])   # contato nao escorrega
+        assert prof.z_to_v(z, s, anchor) == pytest.approx(anchor[1])                          # ida e volta
+    _, z_up = prof.to_vase(anchor[0], anchor[1] - 50, 1.3, anchor)
+    assert (z_up - z1) == pytest.approx(prof.k * 50 / 1.3)                                    # espessura corrigida
 
 
 def test_hand_bottom_over_vase():

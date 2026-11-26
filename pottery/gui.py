@@ -208,11 +208,12 @@ class MainWindow(QMainWindow):
         self.setStyleSheet("background:#aaa;color:#111")
         g.addWidget(button("Calibrar [C]", "calibrate"), 0, 0)
         g.addWidget(button("Reset vaso [R]", "reset"), 0, 1)
-        g.addWidget(self.b_rec, 0, 2)
+        g.addWidget(button("Desfazer [Ctrl+Z]", "undo"), 0, 2)
+        g.addWidget(self.b_rec, 0, 3)
         dbg = QCheckBox("Debug [D]")
         dbg.setToolTip("mostra os landmarks numerados e o medidor de inclinação da cabeça")
         dbg.toggled.connect(lambda v: cmd("show_landmarks", v))
-        g.addWidget(dbg, 0, 3)
+        g.addWidget(dbg, 0, 4)
         QShortcut(QKeySequence("D"), self, dbg.toggle)
 
         g.addWidget(QLabel("Extrator"), 1, 0)
@@ -255,6 +256,7 @@ class MainWindow(QMainWindow):
 
         QShortcut(QKeySequence("R"), self, lambda: cmd("reset"))
         QShortcut(QKeySequence("C"), self, lambda: cmd("calibrate"))
+        QShortcut(QKeySequence.StandardKey.Undo, self, lambda: cmd("undo"))
         return w
 
     # ---------------------------------------------------------------- atualizacao

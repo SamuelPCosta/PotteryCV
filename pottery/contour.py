@@ -188,6 +188,7 @@ class ToolProfile:
     weight: np.ndarray      # 0..1 (atenuacao nas pontas)
     centroid_r: float
     contour: np.ndarray     # (K,2) px na imagem - contorno real da mao (para desenhar)
+    anchor: tuple | None = None   # px: ponto da mao mais perto do eixo (centro da correcao de profundidade)
 
 
 def clean_mask(hm: HandMask) -> tuple[HandMask, np.ndarray] | None:
@@ -230,10 +231,13 @@ def hand_bottom_over_vase(hm: HandMask, s: float, prof, r_top: float) -> tuple[f
         return None, float("nan")
     lowest = m.shape[0] - 1 - np.argmax(m[::-1, :], 0)            # linha mais baixa de cada coluna
     u = hm.roi[0] + np.arange(m.shape[1])
-    x, z = prof.to_vase(u, hm.roi[1] + lowest, s)
+    lv = np.where(cols, lowest, -1)
+    j = int(np.argmax(lv))                                         # ponto mais baixo da mao: centro da correcao
+    anchor = (float(u[j]), float(hm.roi[1] + lv[j]))
+    x, z = prof.to_vase(u, hm.roi[1] + lowest, s, anchor)
     sel = cols & (np.abs(x) <= r_top)
     ys, xs = np.nonzero(m)
-    _, zc = prof.to_vase(hm.roi[0] + xs.mean(), hm.roi[1] + ys.mean(), s)
+    _, zc = prof.to_vase(hm.roi[0] + xs.mean(), hm.roi[1] + ys.mean(), s, anchor)
     return (float(z[sel].min()) if sel.any() else None), float(zc)
 
 
@@ -256,13 +260,16 @@ def feather(cover: np.ndarray, dz: float, width_m: float) -> np.ndarray:
 
 def compute_profile(hm: HandMask, contour, edge: str, s: float, prof, H: float, n_z: int, feather_m: float) -> ToolProfile | None:
     z = np.linspace(0, H, n_z)
-    v = prof.z_to_v(z, s)
+    c = np.asarray(contour, dtype=np.float64)
+    a = c[np.argmin(np.abs(c[:, 0] - prof.axis_u))]               # ponto da mao mais perto do eixo (o contato)
+    anchor = (float(a[0]), float(a[1]))
+    v = prof.z_to_v(z, s, anchor)
     umin, umax = mask_row_spans(hm, v)
     cover = ~np.isnan(umin)
     if not cover.any():
         return None
-    xmin, _ = prof.to_vase(np.nan_to_num(umin), v, s)
-    xmax, _ = prof.to_vase(np.nan_to_num(umax), v, s)
+    xmin, _ = prof.to_vase(np.nan_to_num(umin), v, s, anchor)
+    xmax, _ = prof.to_vase(np.nan_to_num(umax), v, s, anchor)
     if edge == "R":
         rn, rf = xmin, xmax
     else:
@@ -271,7 +278,7 @@ def compute_profile(hm: HandMask, contour, edge: str, s: float, prof, H: float, 
     rf = np.maximum(rf, rn)
     w = feather(cover, H / (n_z - 1), feather_m)
     cr = float(np.mean((rn[cover] + rf[cover]) / 2))
-    return ToolProfile(np.where(cover, rn, np.nan), np.where(cover, rf, np.nan), cover, w, cr, contour)
+    return ToolProfile(np.where(cover, rn, np.nan), np.where(cover, rf, np.nan), cover, w, cr, contour, anchor)
 
 
 class ProfileEMA:

@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import math
+from collections import deque
 
 import cv2
 import numpy as np
 
 EDGE_THETA = {"R": 0.0, "L": math.pi}   # angulo de mundo da borda (direita/esquerda da tela)
 TWO_PI = 2 * math.pi
+UNDO_N = 10                             # estados guardados para desfazer (Ctrl+Z)
 
 
 def sweep(theta_e: float, phi0: float, phi1: float, n: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -81,6 +83,7 @@ class Vase:
         self.cfg = cfg
         self.n_theta, self.n_z = cfg.n_theta, cfg.n_z
         self.version = 0
+        self._undo: deque = deque(maxlen=UNDO_N)   # (R, Hc) antes de cada toque
         self.reset()
 
     """Mapa R(θ, z) com ALTURA POR COLUNA: a coluna i vai de z = 0 até Hc[i]; o bin j fica em z = Hc[i]·j/(N_z−1).
@@ -99,6 +102,25 @@ class Vase:
         w[0] = w[-1] = 0.5
         self._wz = w / w.sum()                       # pesos de trapezio em z (media por coluna)
         self._zn = np.linspace(0.0, 1.0, self.n_z)
+
+    # ---------------------------------------------------- desfazer
+    def snapshot(self) -> tuple[np.ndarray, np.ndarray]:
+        return self.R.copy(), self.Hc.copy()
+
+    def push_undo(self, snap=None):
+        """Guarda um estado (o atual, se snap for None) para o Ctrl+Z; o mais antigo sai quando passa de UNDO_N."""
+        self._undo.append(self.snapshot() if snap is None else snap)
+
+    def undo(self) -> bool:
+        if not self._undo:
+            return False
+        self.R, self.Hc = self._undo.pop()
+        self.version += 1
+        return True
+
+    @property
+    def undo_left(self) -> int:
+        return len(self._undo)
 
     # ---------------------------------------------------- consultas
     @property
