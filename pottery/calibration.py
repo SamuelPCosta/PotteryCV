@@ -114,8 +114,8 @@ INSTR = {
 
 
 class Calibrator:
-    """Cada etapa: mostra a instrucao + contagem regressiva ("capturando em 3.. 2.. 1"), depois captura
-    quando a pose fica parada por dwell_s."""
+    """Cada etapa espera o botao "Continuar" (go) para a pessoa ler a instrucao; depois captura quando a pose
+    fica parada por dwell_s. A interface desenha uma mascara em volta do rosto/maos que enche com progress()."""
 
     def __init__(self, cfg_calib, cfg_hand, w: int, h: int, mirrored: bool, base: CalibProfile | None = None,
                  r_limits: tuple[float, float] = (0.01, 0.16)):
@@ -127,9 +127,7 @@ class Calibrator:
             self.prof.L_ref, self.prof.kappa = dict(base.L_ref), dict(base.kappa)
         self.prof.mirrored = mirrored
         self.step = 0
-        self.phase = "COUNTDOWN"
-        self.t_phase: float | None = None
-        self.t_now = 0.0
+        self.ready = False              # False = mostrando a instrucao, esperando o botao
         self.hint = ""
         self.dw = _Dwell(cfg_calib.dwell_s, cfg_calib.still_px)
 
@@ -141,31 +139,24 @@ class Calibrator:
     def instruction(self):
         return INSTR.get(self.name, "")
 
-    def countdown_left(self) -> float:
-        if self.phase != "COUNTDOWN" or self.t_phase is None:
-            return self.cc.countdown_s if self.phase == "COUNTDOWN" else 0.0
-        return max(0.0, self.cc.countdown_s - (self.t_now - self.t_phase))
-
     def progress(self):
-        return self.dw.progress() if self.phase == "CAPTURE" else 0.0
+        return self.dw.progress() if self.ready else 0.0
+
+    def go(self):
+        self.ready = True
+        self.dw.reset()
 
     def update(self, hands, head, image_bgr, t: float) -> CalibProfile | None:
-        self.t_now = t
-        if self.t_phase is None:
-            self.t_phase = t
-        if self.phase == "COUNTDOWN":
-            self.hint = ""
-            if t - self.t_phase >= self.cc.countdown_s:
-                self.phase = "CAPTURE"
-                self.dw.reset()
+        if not self.ready:
+            self.hint = "Clique em Continuar"
             return None
         name = self.name
         if name == "HEAD":
             if not head.ok:
-                self.hint = "rosto não detectado"
+                self.hint = "Rosto não detectado"
                 self.dw.reset()
                 return None
-            self.hint = "segure parado…"
+            self.hint = "Segure parado…"
             self.dw.thr = self.cc.still_deg
             if self.dw.push(t, [head.pitch, head.yaw, head.roll]):
                 v = np.median(np.stack([b[1] for b in self.dw.buf]), 0)
@@ -173,10 +164,10 @@ class Calibrator:
                 self._next()
             return None
         if len(hands) != 2:
-            self.hint = f"preciso ver as duas mãos ({len(hands)} visível)"
+            self.hint = f"Preciso ver as duas mãos ({len(hands)} visível)"
             self.dw.reset()
             return None
-        self.hint = "segure parado…"
+        self.hint = "Segure parado…"
         hs = sorted(hands, key=lambda h: h.center[0])           # [esquerda da tela, direita da tela]
         vec = np.concatenate([hs[0].center, hs[1].center])
         self.dw.thr = self.cc.still_px
@@ -209,5 +200,5 @@ class Calibrator:
 
     def _next(self):
         self.step += 1
-        self.phase, self.t_phase = "COUNTDOWN", None
+        self.ready = False
         self.dw = _Dwell(self.cc.dwell_s, self.cc.still_px)

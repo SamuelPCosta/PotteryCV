@@ -23,12 +23,12 @@ accel_deg = 8.0      # para baixo a partir daqui: acelera
 brake_deg = 4.0      # para cima a partir daqui: freia até parar
 dwell_s = 0.3
 accel_rpm_s = 50.0
-max_rpm = 90.0
+max_rpm = 160.0
 min_rpm = 2.0        # o torno nunca fica abaixo disso
-pitch_sign = 1.0     # troque para -1 se olhar para baixo estiver freando
+pitch_sign = 1.0     
 
 [calib]
-countdown_s = 3.0    # "capturando em 3.. 2.. 1"
+dwell_s = 1.0        # segundos parado para capturar (a máscara enche nesse tempo)
 
 [seg]
 extractor = "landmarks"   # landmarks | mobilesam

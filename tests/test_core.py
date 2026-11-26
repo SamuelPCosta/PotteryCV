@@ -167,6 +167,8 @@ def test_calibration_hands_gives_axis_scale_and_width():
     head = HeadObs(True, 2.0, 1.0, 0.0)
     prof, t = None, 0.0
     while prof is None and t < 20:
+        if not cal.ready:                    # botao "Continuar" de cada etapa
+            cal.go()
         prof = cal.update(hands, head, np.zeros((720, 1280, 3), np.uint8), t)
         t += 1 / 30
     assert prof is not None and prof.calibrated

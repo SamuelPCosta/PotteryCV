@@ -1,8 +1,10 @@
 """Interface Qt: webcam+overlay, preview 3D do vaso, mapa R desenrolado e painel de depuracao."""
 from __future__ import annotations
 
+import ctypes
 import math
 import os
+import sys
 from html import escape
 from pathlib import Path
 
@@ -84,13 +86,38 @@ def pg_vector(x, y, z):
     from pyqtgraph import Vector
     return Vector(x, y, z)
 
+RMAP_CELL = (10, 6)          # px por coluna (theta) e por linha (z) no mapa: grande o bastante para texto nitido
+RMAP_LABEL = {"R": "Right Hand", "L": "Left Hand"}
+
+
 def rmap_image(R: np.ndarray, r_max: float, cols: dict | None) -> np.ndarray:
+    cw, ch = RMAP_CELL
     img = (np.clip(R.T[::-1] / r_max, 0, 1) * 255).astype(np.uint8)   # z para cima, theta na horizontal
     img = cv2.applyColorMap(img, cv2.COLORMAP_VIRIDIS)
-    img = cv2.resize(img, (R.shape[0] * 3, R.shape[1] * 2), interpolation=cv2.INTER_NEAREST)
+    img = cv2.resize(img, (R.shape[0] * cw, R.shape[1] * ch), interpolation=cv2.INTER_NEAREST)
+    h, w = img.shape[:2]
+    grid = img.copy()                                    # grade de cada linha e coluna, cinza bem clarinho
+    grid[:, ::cw] = 210
+    grid[::ch, :] = 210
+    cv2.addWeighted(grid, 0.18, img, 0.82, 0, img)
     for e, c in (cols or {}).items():
-        x = c * 3 + 1
-        cv2.line(img, (x, 0), (x, img.shape[0]), (0, 140, 255) if e == "R" else (255, 140, 0), 1)
+        x = c * cw + cw // 2
+        col = (0, 140, 255) if e == "R" else (255, 140, 0)
+        cv2.line(img, (x, 0), (x, h), col, 2)
+        txt = RMAP_LABEL[e]
+        (tw, th), base = cv2.getTextSize(txt, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 1)
+        tag = np.zeros((th + base + 4, tw + 6, 3), np.uint8)   # texto deitado: escreve na horizontal e gira 90 graus
+        cv2.putText(tag, txt, (3, th + 2), cv2.FONT_HERSHEY_SIMPLEX, 0.55, col, 1, cv2.LINE_AA)   # cor da mao
+        tag = cv2.rotate(tag, cv2.ROTATE_90_COUNTERCLOCKWISE)  # le de baixo para cima
+        th2, tw2 = tag.shape[:2]
+        x0 = x - 2 - tw2 if x - 2 - tw2 >= 0 else x + 3       # sem espaco na esquerda: vai para a direita
+        y0 = h - 6 - th2
+        if y0 < 0 or x0 + tw2 > w:
+            continue
+        roi = img[y0:y0 + th2, x0:x0 + tw2]
+        m = tag.any(2)
+        a = tag.max(2, keepdims=True).astype(np.float32) / max(col)   # cobertura do anti-aliasing (0..1)
+        roi[m] = (roi[m] * (1 - a[m]) + np.array(col) * a[m]).astype(np.uint8)
     return img
 
 
@@ -129,6 +156,17 @@ def titled(title: str, widget: QWidget, pad: int = 0) -> QWidget:
     return box
 
 
+def dark_title_bar(win: QWidget):
+    """Barra de titulo do Windows escura com letras claras (DWMWA_USE_IMMERSIVE_DARK_MODE = 20, Win10 2004+)."""
+    if sys.platform != "win32":
+        return
+    try:
+        on = ctypes.c_int(1)
+        ctypes.windll.dwmapi.DwmSetWindowAttribute(int(win.winId()), 20, ctypes.byref(on), ctypes.sizeof(on))
+    except Exception:
+        pass   # Windows antigo: fica a barra padrao
+
+
 class MainWindow(QMainWindow):
     def __init__(self, cfg, pipeline=None, receiver=None):
         super().__init__()
@@ -136,10 +174,16 @@ class MainWindow(QMainWindow):
         self.cfg, self.pipe, self.rx = cfg, pipeline, receiver
         self.setWindowTitle("PotteryCV — " + ("viewer" if receiver else "Torno virtual"))
         self.resize(1500, 900)
+        dark_title_bar(self)
         self.video = QLabel("Aguardando câmera…")
         self.video.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.video.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
         self.video.setStyleSheet("background:#000;color:#aaa")
+        self.b_go = QPushButton("Continuar  [Espaço]", self.video)   # por cima da camera: cada etapa da calibracao
+        self.b_go.setStyleSheet(f"background:{ACCENT};color:#fff;border-radius:6px;padding:12px 28px;"
+                                "font-size:18px;font-weight:bold")
+        self.b_go.clicked.connect(lambda: self.pipe.command("calib_go"))
+        self.b_go.hide()
         self.rmap = QLabel()
         self.rmap.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.rmap.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
@@ -275,6 +319,7 @@ class MainWindow(QMainWindow):
 
         QShortcut(QKeySequence("R"), self, lambda: cmd("reset"))
         QShortcut(QKeySequence("C"), self, lambda: cmd("calibrate"))
+        QShortcut(QKeySequence("Space"), self, lambda: cmd("calib_go"))
         QShortcut(QKeySequence.StandardKey.Undo, self, lambda: cmd("undo"))
         return w
 
@@ -287,6 +332,13 @@ class MainWindow(QMainWindow):
             self.debug.setText(r.get("message", ""))
             return
         self.video.setPixmap(to_pixmap(r["image"], self.video.size()))
+        if r.get("calib_wait"):                       # botao no centro da imagem
+            self.b_go.adjustSize()
+            self.b_go.move((self.video.width() - self.b_go.width()) // 2, (self.video.height() - self.b_go.height()) // 2)
+            self.b_go.show()
+            self.b_go.raise_()
+        elif self.b_go.isVisible():
+            self.b_go.hide()
         vw = self.video.pixmap().width() or self.rmap.width()   # mapa na mesma largura da imagem da camera
         self.rmap.setPixmap(to_pixmap(rmap_image(r["R"], self.cfg.vase.r_max, r["cols"]),
                                       QSize(vw, self.rmap.height()), keep_aspect=False))

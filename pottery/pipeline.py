@@ -89,6 +89,7 @@ class Pipeline(QThread):
         self.rec: dict | None = None
         self.prof: CalibProfile | None = None
         self.calib: Calibrator | None = None
+        self._calib_box = None               # caixa do rosto suavizada (mascara da calibracao nao treme)
         self.state = "INIT"
         self.head = HeadObs(False)
         self.fps = 0.0
@@ -134,6 +135,8 @@ class Pipeline(QThread):
         c = self.cfg
         if name == "calibrate":
             self._start_calibration(img_shape[1], img_shape[0])
+        elif name == "calib_go" and self.calib:
+            self.calib.go()
         elif name == "cancel_calibration" and self.calib:
             self.calib, self.state = None, "MODELING"
         elif name == "reset":
@@ -413,8 +416,8 @@ class Pipeline(QThread):
             volume=vol_ratio,
             contacts={e: ("PRESS" if self.tops[e].state == "PRESS" else k.state) for e, k in self.contacts.items()},
             pen={e: k.pen for e, k in self.contacts.items()}, extractor=self.extractor, seg_age=seg_age,
-            calib_step=self.calib.name if self.calib else "", n_hands=len(hands),
             seg_ms=self.seg.ms if self.seg else 0.0, lat_proc=self.lat_proc, lat_blender=self.lat_blender, message=self.message, recording=self.rec is not None,
+            calib_step=self.calib.name if self.calib else "", calib_wait=bool(self.calib and not self.calib.ready), n_hands=len(hands),
             cols={e: self.vase.col_index(e) for e in ("R", "L")}))
 
     # ---------------------------------------------------------------- overlay
@@ -522,27 +525,67 @@ class Pipeline(QThread):
         roi = img[y0:y1, x0:x1]
         roi[:] = (roi * (1 - a) + np.array(color, np.float32) * a).astype(np.uint8)
 
+    def _draw_calib_mask(self, img, hands, cb):
+        """Mascara em volta do que a etapa precisa (rosto ou maos), so quando esta na tela: escurece o resto e
+        enche a regiao de baixo para cima com o progresso da captura. Nao exige posicao nenhuma.
+        Antes do botao Continuar (ou sem nada na tela) so escurece a imagem inteira."""
+        H, W = img.shape[:2]
+        shape = np.zeros((H, W), np.uint8)
+        if not cb.ready or (cb.name == "HEAD" and (not self.head.ok or self.head.bbox is None)) \
+                or (cb.name != "HEAD" and not hands):
+            if cb.name == "HEAD":
+                self._calib_box = None
+            img[:] = (img * 0.35).astype(np.uint8)
+            return
+        if cb.name == "HEAD":
+            b = np.asarray(self.head.bbox, np.float64)
+            self._calib_box = b if self._calib_box is None else 0.7 * self._calib_box + 0.3 * b
+            x0, y0, x1, y1 = self._calib_box
+            c = (int((x0 + x1) / 2), int((y0 + y1) / 2))
+            ax = (int((x1 - x0) * 0.75), int((y1 - y0) * 0.8))      # folga em volta do rosto
+            cv2.ellipse(shape, c, ax, 0, 0, 360, 255, -1, cv2.LINE_AA)
+        else:
+            for h in hands:                                        # casco dos landmarks + folga (mao de lado e fina)
+                hull = cv2.convexHull(h.lm.astype(np.int32))
+                pad = int(0.18 * np.ptp(h.lm, 0).max()) + 10
+                cv2.fillPoly(shape, [hull], 255, cv2.LINE_AA)
+                cv2.polylines(shape, [hull], True, 255, 2 * pad, cv2.LINE_AA)
+        inside = shape > 127
+        img[~inside] = (img[~inside] * 0.35).astype(np.uint8)        # escurece fora da mascara
+        ys = np.nonzero(inside.any(1))[0]
+        p = cb.progress()
+        if p > 0 and len(ys):
+            y_fill = int(ys[-1] - p * (ys[-1] - ys[0] + 1))          # nivel sobe de baixo para cima
+            fill = inside.copy()
+            fill[:max(0, y_fill)] = False
+            img[fill] = (0.55 * img[fill] + 0.45 * np.array((0, 220, 120))).astype(np.uint8)
+        done_col = (0, 220, 120) if p >= 1 else (255, 255, 255)
+        cnts, _ = cv2.findContours(shape, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        cv2.drawContours(img, cnts, -1, done_col, 2, cv2.LINE_AA)
+
     def _draw(self, img, edges, profiles, masks):
         prof, v = self.prof, self.vase
         z = np.linspace(0, v.H, v.n_z)                       # grade global (perfil das maos)
-        au = int(prof.axis_u)
-        top = int(prof.z_to_v(v.H))
-        bv = int(prof.base_v)
-        for y in range(top, bv, 12):
-            cv2.line(img, (au, y), (au, min(y + 6, bv)), (200, 200, 200), 1)
-        sil = {}
-        for e, sgn in (("R", 1), ("L", -1)):                 # cada lado com a altura da SUA coluna
-            i = v.col_index(e)
-            vv = prof.z_to_v(v.Hc[i] * np.linspace(0, 1, v.n_z))
-            sil[e] = np.stack([prof.x_to_u(sgn * v.R[i]), vv], 1).astype(np.int32)
-        fill = img.copy()                                    # preenchimento do vaso a 30%
-        cv2.fillPoly(fill, [np.concatenate([sil["R"], sil["L"][::-1]])], CLAY)
-        cv2.addWeighted(fill, 0.3, img, 0.7, 0, img)
-        self._draw_topology_lines(img)
-        for pts in sil.values():
-            cv2.polylines(img, [pts], False, CLAY, 3, cv2.LINE_AA)
-        cv2.line(img, tuple(map(int, sil["L"][-1])), tuple(map(int, sil["R"][-1])), CLAY, 2, cv2.LINE_AA)   # boca
-        cv2.line(img, tuple(map(int, sil["L"][0])), tuple(map(int, sil["R"][0])), CLAY, 2)                    # base
+        calibrating = self.state == "CALIBRATING" and self.calib
+        if not calibrating:                                  # vaso, medidor e roda so fora da calibracao
+            au = int(prof.axis_u)
+            top = int(prof.z_to_v(v.H))
+            bv = int(prof.base_v)
+            for y in range(top, bv, 12):
+                cv2.line(img, (au, y), (au, min(y + 6, bv)), (200, 200, 200), 1)
+            sil = {}
+            for e, sgn in (("R", 1), ("L", -1)):                 # cada lado com a altura da SUA coluna
+                i = v.col_index(e)
+                vv = prof.z_to_v(v.Hc[i] * np.linspace(0, 1, v.n_z))
+                sil[e] = np.stack([prof.x_to_u(sgn * v.R[i]), vv], 1).astype(np.int32)
+            fill = img.copy()                                    # preenchimento do vaso a 30%
+            cv2.fillPoly(fill, [np.concatenate([sil["R"], sil["L"][::-1]])], CLAY)
+            cv2.addWeighted(fill, 0.3, img, 0.7, 0, img)
+            self._draw_topology_lines(img)
+            for pts in sil.values():
+                cv2.polylines(img, [pts], False, CLAY, 3, cv2.LINE_AA)
+            cv2.line(img, tuple(map(int, sil["L"][-1])), tuple(map(int, sil["R"][-1])), CLAY, 2, cv2.LINE_AA)   # boca
+            cv2.line(img, tuple(map(int, sil["L"][0])), tuple(map(int, sil["R"][0])), CLAY, 2)                    # base
         for e, h in edges.items():
             if h is None:
                 continue
@@ -568,20 +611,15 @@ class Pipeline(QThread):
             cv2.putText(img, f"{e}:{st}", (int(h.center[0]) - 30, int(h.center[1])),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, col, 2, cv2.LINE_AA)
         H, W = img.shape[:2]
-        self._shade_right(img)
-        self._draw_wheel(img, self._draw_head_gauge(img))
-        if self.state == "CALIBRATING" and self.calib:
+        if not calibrating:
+            self._shade_right(img)
+            self._draw_wheel(img, self._draw_head_gauge(img))
+        if calibrating:
             cb = self.calib
+            self._draw_calib_mask(img, [h for h in edges.values() if h is not None], cb)
             cv2.rectangle(img, (0, 0), (W, 95), (0, 0, 0), -1)
             cv2.putText(img, _ascii(cb.instruction), (15, 32), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (255, 255, 255), 2, cv2.LINE_AA)
-            if cb.phase == "COUNTDOWN":
-                n = math.ceil(cb.countdown_left())
-                cv2.putText(img, f"capturando em {n}...", (15, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 220, 255), 2, cv2.LINE_AA)
-                cv2.putText(img, str(n), (W // 2 - 40, H // 2 + 40), cv2.FONT_HERSHEY_SIMPLEX, 5, (0, 220, 255), 10, cv2.LINE_AA)
-            else:
-                cv2.putText(img, _ascii(f"CAPTURANDO - {cb.hint}"), (15, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 120), 2, cv2.LINE_AA)
-                cv2.rectangle(img, (520, 60), (520 + int((W - 535) * cb.progress()), 80), (0, 220, 120), -1)
-                cv2.rectangle(img, (520, 60), (W - 15, 80), (200, 200, 200), 1)
+            cv2.putText(img, _ascii(cb.hint), (15, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 1, cv2.LINE_AA)
         elif self.reset_at is not None:
             n = max(1, math.ceil(self.reset_left))
             cv2.rectangle(img, (0, 0), (W, 60), (0, 0, 150), -1)

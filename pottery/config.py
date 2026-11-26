@@ -80,7 +80,6 @@ class SpeedCfg:
 
 @dataclass
 class CalibCfg:
-    countdown_s: float = 3.0  # "capturando em 3.. 2.. 1" antes de cada etapa
     dwell_s: float = 1.0
     still_px: float = 6.0
     still_deg: float = 1.5
