@@ -8,8 +8,9 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 
-EXTRACTORS = ["landmarks", "mobilesam"]
-_SAM_WEIGHTS = {"mobilesam": "mobile_sam.pt"}
+EXTRACTORS = ["landmarks", "mobilesam", "sam3"]
+_SAM_WEIGHTS = {"mobilesam": "mobile_sam.pt", "sam3": "sam3.pt"}   # sam3.pt: baixar do HF (acesso restrito)
+_MIN_AGE = {"sam3": 24}   # SAM 3 leva ~460 ms (RTX 3060, fp16): a mascara vale por mais quadros, propagada pelos landmarks
 FINGERS = [(0, 1, 2, 3, 4), (5, 6, 7, 8), (9, 10, 11, 12), (13, 14, 15, 16), (17, 18, 19, 20)]
 PALM_POLY = [0, 1, 2, 5, 9, 13, 17]
 
@@ -81,7 +82,7 @@ class SamSegmenter:
     def __init__(self, name: str, models_dir: str, device: str, pad: float, max_age: int, timeout: float = 180):
         import multiprocessing as mp
         from pathlib import Path
-        self.name, self.pad, self.max_age = name, pad, max_age
+        self.name, self.pad, self.max_age = name, pad, max(max_age, _MIN_AGE.get(name, 0))
         wpath = Path(models_dir) / _SAM_WEIGHTS[name]
         weights = str(wpath) if wpath.exists() else _SAM_WEIGHTS[name]     # ultralytics baixa se faltar
         ctx = mp.get_context("spawn")
@@ -96,10 +97,11 @@ class SamSegmenter:
         self.results: dict[int, tuple[HandMask, np.ndarray, int]] = {}   # track -> (mask, lm_seg, frame_id)
         self.ms = 0.0
         self.error: str | None = None
+        self._busy = False                          # ha um quadro sendo processado no worker
 
     def request(self, frame_id, image, hands):
         self._drain()
-        if not hands or not self.q_in.empty():   # worker ocupado: so o pedido mais novo importa, este e pulado
+        if not hands or self._busy:   # worker ocupado: pula (pedir agora so faria o quadro esperar um ciclo a mais)
             return
         H, W = image.shape[:2]
         rois = [hand_roi(h.lm, self.pad, W, H) for h in hands]
@@ -114,6 +116,7 @@ class SamSegmenter:
         self.pending[frame_id] = ([(h.track_id, h.lm.copy(), r) for h, r in zip(hands, rois)], (X0, Y0))
         try:
             self.q_in.put_nowait((frame_id, crop, boxes, pts))
+            self._busy = True
         except queue.Full:
             pass
 
@@ -123,6 +126,7 @@ class SamSegmenter:
                 msg = self.q_out.get_nowait()
             except (queue.Empty, OSError, EOFError):
                 break
+            self._busy = False
             if msg[0] == "error":
                 self.error = msg[1]
                 continue

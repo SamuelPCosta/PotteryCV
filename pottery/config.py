@@ -97,7 +97,7 @@ class NetCfg:
 
 @dataclass
 class SegCfg:
-    extractor: str = "landmarks"  # landmarks | mobilesam
+    extractor: str = "landmarks"  # landmarks | mobilesam | sam3
     device: str = "cuda"
     max_age: int = 6
     roi_pad: float = 0.15
