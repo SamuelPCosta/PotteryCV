@@ -15,7 +15,7 @@ O mapa 128 × 128 em float32 tem 65.536 B, acima do limite de 65.507 B de um dat
 | 0 | 4s | magic `PCV1` |
 | 4 | u8 | version = 1 |
 | 5 | u8 | msg_type = 1 |
-| 6 | u16 | flags (bit0 reset, bit1 calibrando, bit2 pausado, bit3 sintético) |
+| 6 | u16 | flags (bit0 reset, bit1 calibrando, bit2 pausado, bit3 sintético, bit4 pede a vista da câmera do Blender em JPEG: `data/blender_view.jpg`, a cada 5 estados) |
 | 8 | u32 | seq |
 | 12 | u32 | frame_id |
 | 16 | u64 | t_capture_ns (`time.time_ns()` na captura) |
@@ -26,7 +26,7 @@ O mapa 128 × 128 em float32 tem 65.536 B, acima do limite de 65.507 B de um dat
 | 38 | u16 | col_count |
 | 40 | u8 | chunk_index |
 | 41 | u8 | chunk_count |
-| 42 | u16 | reserved |
+| 42 | u16 | wetness (umidade do barro, 0..65535 = 0..1; o Blender grava em `obj["wetness"]`) |
 | 44 | f32 | height_m (**H, pode mudar a qualquer momento**) |
 | 48 | f32 | r_scale_m |
 | 52 | f32 | phi_rad ∈ [0, 2π) |

@@ -14,7 +14,7 @@ from PySide6.QtCore import QThread, Signal
 from . import contour as ct
 from .calibration import CalibProfile, Calibrator
 from .capture import Camera, Recorder, Replay
-from .net import F_CALIB, F_PAUSED, F_RESET, Sender
+from .net import F_CALIB, F_PAUSED, F_RESET, F_VIEW, Sender
 from .speed import SpeedController
 from .tracking import HandTracker, HeadObs, HeadTracker, assign_edges
 from .vase import EdgeContact, TopContact, Vase
@@ -85,6 +85,7 @@ class Pipeline(QThread):
         self.seg: ct.SamSegmenter | None = None
         self.message = ""
         self.paused = False
+        self.blender_view = False   # pede a imagem da camera do Blender (flag F_VIEW)
         self.rec: dict | None = None
         self.prof: CalibProfile | None = None
         self.calib: Calibrator | None = None
@@ -94,7 +95,11 @@ class Pipeline(QThread):
         self.reset_at: float | None = None   # contagem do reinicio apos esmagar
         self.reset_left = 0.0
         self.show_lm = False
+        self.lat_proc = 0.0                  # ms, captura -> fim do processamento (media movel)
+        self.lat_blender = float("nan")      # ms, captura -> Blender aplicou (pelo eco UDP)
+        self._echo_t = 0.0                   # quando chegou o ultimo eco
         self._touching = False               # alguma mao mexendo no vaso no quadro anterior
+        self.wetness = 0.0                   # umidade do barro (0..1): sobe ao tocar, seca com o tempo
         self._pre_touch = None               # estado do vaso antes do toque atual (vai para o desfazer)
 
     def _apply_profile(self):
@@ -163,6 +168,8 @@ class Pipeline(QThread):
             c.vase.smooth_lambda = float(val)
         elif name == "show_landmarks":
             self.show_lm = bool(val)
+        elif name == "blender_view":
+            self.blender_view = bool(val)
 
     def _set_extractor(self, name):
         if self.seg:
@@ -349,22 +356,37 @@ class Pipeline(QThread):
         if touching and not self._touching and self._pre_touch is not None:
             self.vase.push_undo(self._pre_touch)     # comecou um toque: o estado de antes vira um passo do Ctrl+Z
         self._touching = touching
+        if touching:                                 # tocando: aproxima de 1 suavemente
+            self.wetness += (1.0 - self.wetness) * (1.0 - math.exp(-dt / max(c.vase.wet_rise_s, 1e-3)))
+        elif modeling:                               # sem toque: seca devagar ate 0
+            self.wetness = max(0.0, self.wetness - dt / max(c.vase.wet_dry_s, 1e-3))
+        if self.vase.reset_flag:
+            self.wetness = 0.0
         t4 = time.perf_counter()
         ms["sim"] = (t4 - t3) * 1000
 
         # ---------------- saidas
         overlay = self._draw(img.copy(), edges, profiles, masks)
         flags = (F_CALIB if self.state == "CALIBRATING" else 0) | (F_PAUSED if self.paused else 0) | (F_RESET if self.vase.reset_flag else 0)
+        flags |= F_VIEW if self.blender_view else 0
         self.vase.reset_flag = False
         t_send = 0
         if self.sender:
             if self.sender.maybe_send(self.vase.R, self.vase.H, self.vase.phi, omega, fr.id, fr.ts_ns, self.vase.version, flags,
-                                      hfrac=self.vase.Hc / self.vase.H):
+                                      hfrac=self.vase.Hc / self.vase.H, wetness=self.wetness):
                 t_send = time.time_ns()
             echoes = self.sender.poll_echo()
         else:
             echoes = []
         ms["total"] = (time.perf_counter() - t0) * 1000
+        lp = (time.time_ns() - fr.ts_ns) / 1e6                       # inclui a espera na fila da camera
+        self.lat_proc = lp if not self.lat_proc else 0.9 * self.lat_proc + 0.1 * lp
+        for d in echoes:
+            lb = (d["t_applied_ns"] - d["t_capture_ns"]) / 1e6       # mesmo relogio: Blender roda na mesma maquina
+            self.lat_blender = lb if self.lat_blender != self.lat_blender else 0.9 * self.lat_blender + 0.1 * lb
+            self._echo_t = time.perf_counter()
+        if time.perf_counter() - self._echo_t > 2.0:                 # sem eco ha 2 s: Blender fechado/parado
+            self.lat_blender = float("nan")
         vol_ratio = self.vase.volume() / self.vase.V0
         if self.rec:
             self.rec["r"].write(fr)
@@ -391,8 +413,8 @@ class Pipeline(QThread):
             volume=vol_ratio,
             contacts={e: ("PRESS" if self.tops[e].state == "PRESS" else k.state) for e, k in self.contacts.items()},
             pen={e: k.pen for e, k in self.contacts.items()}, extractor=self.extractor, seg_age=seg_age,
-            seg_ms=self.seg.ms if self.seg else 0.0, message=self.message, recording=self.rec is not None,
             calib_step=self.calib.name if self.calib else "", n_hands=len(hands),
+            seg_ms=self.seg.ms if self.seg else 0.0, lat_proc=self.lat_proc, lat_blender=self.lat_blender, message=self.message, recording=self.rec is not None,
             cols={e: self.vase.col_index(e) for e in ("R", "L")}))
 
     # ---------------------------------------------------------------- overlay

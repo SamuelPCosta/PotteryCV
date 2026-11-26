@@ -247,13 +247,14 @@ def test_hand_bottom_over_vase():
 def test_protocol_roundtrip_single_datagram():
     R = np.random.default_rng(0).uniform(0.01, 0.2, (128, 128)).astype(np.float32)
     hf = np.linspace(0.5, 1.0, 128)
-    bufs = encode_state(R, 0.22, 7.0, 3.0, 5, 9, 123, 4, hfrac=hf)
+    bufs = encode_state(R, 0.22, 7.0, 3.0, 5, 9, 123, 4, hfrac=hf, wetness=0.7)
     assert len(bufs) == 1 and len(bufs[0]) == 64 + 128 * 128 * 2 + 128 * 2 <= 65507
     stamp_send(bufs[0], 456)
     d = decode(bytes(bufs[0]))
     assert d["t_capture_ns"] == 123 and d["t_send_ns"] == 456 and d["height"] == pytest.approx(0.22)
     assert np.abs(d["R"] - R).max() <= 0.30 / 65535
     assert np.abs(d["hfrac"] - hf).max() <= 1 / 65535
+    assert d["wetness"] == pytest.approx(0.7, abs=1 / 65535)
     assert decode(b"XXXX" + bytes(bufs[0][4:])) is None
     assert decode(bytes(bufs[0][:-2])) is None
 

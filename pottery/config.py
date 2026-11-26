@@ -35,6 +35,8 @@ class VaseCfg:
     feather_m: float = 0.003   # rampa nas pontas de cada dedo (pequena para nao apagar a marca do dedo)
     side_gain: float = 0.4    # apertar dos lados -> sobe: 0 = altura fixa, 1 = conserva volume exato
     top_rate: float = 0.5     # rapidez do achatamento ao empurrar o topo (conserva volume: engorda)
+    wet_rise_s: float = 0.4   # umidade (wetness): tocou -> sobe ate 1 com essa constante de tempo
+    wet_dry_s: float = 20.0   # sem toque: cai de 1 ate 0 em tantos segundos (linear)
 
 
 @dataclass

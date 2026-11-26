@@ -11,7 +11,8 @@ import numpy as np
 MAGIC = b"PCV1"
 VERSION = 1
 T_STATE, T_ECHO = 1, 3
-F_RESET, F_CALIB, F_PAUSED, F_SYNTH = 1, 2, 4, 8
+F_RESET, F_CALIB, F_PAUSED, F_SYNTH, F_VIEW = 1, 2, 4, 8, 16   # F_VIEW: pede ao Blender o JPEG da camera
+VIEW_JPEG = "blender_view.jpg"   # em <projeto>/data/ (Blender grava, GUI le)
 STATE_HDR = struct.Struct("<4sBBHIIQQHHHHBBHffffI")   # 64 bytes
 ECHO = struct.Struct("<4sBBHIIQQQQ")                  # 48 bytes
 assert STATE_HDR.size == 64 and ECHO.size == 48
@@ -20,12 +21,14 @@ MAX_UDP = 65507
 
 def encode_state(R: np.ndarray, H: float, phi: float, omega: float, seq: int, frame_id: int, t_capture_ns: int,
                  version: int, flags: int = 0, r_scale: float = 0.30, max_datagram: int = 65000,
-                 hfrac: np.ndarray | None = None) -> list[bytearray]:
-    """Payload de cada bloco: col_countxn_z raios (uint16) + col_count alturas relativas da coluna (uint16, 0..1 x H)."""
+                 hfrac: np.ndarray | None = None, wetness: float = 0.0) -> list[bytearray]:
+    """Payload de cada bloco: col_countxn_z raios (uint16) + col_count alturas relativas da coluna (uint16, 0..1 x H).
+    wetness (0..1) vai no campo de 16 bits do cabecalho (offset 42)."""
     n_theta, n_z = R.shape
     q = np.round(np.clip(R / r_scale, 0, 1) * 65535).astype("<u2")
     hf = np.ones(n_theta) if hfrac is None else np.asarray(hfrac, dtype=np.float64)
     qh = np.round(np.clip(hf, 0, 1) * 65535).astype("<u2")
+    qw = int(round(min(max(wetness, 0.0), 1.0) * 65535))
     cols_per = max(1, (min(max_datagram, MAX_UDP) - STATE_HDR.size) // (n_z * 2 + 2))
     chunks = list(range(0, n_theta, cols_per))
     out = []
@@ -34,7 +37,7 @@ def encode_state(R: np.ndarray, H: float, phi: float, omega: float, seq: int, fr
         nr = cc * n_z * 2
         buf = bytearray(STATE_HDR.size + nr + cc * 2)
         STATE_HDR.pack_into(buf, 0, MAGIC, VERSION, T_STATE, flags, seq & 0xFFFFFFFF, frame_id & 0xFFFFFFFF,
-                            t_capture_ns, 0, n_theta, n_z, c0, cc, ci, len(chunks), 0,
+                            t_capture_ns, 0, n_theta, n_z, c0, cc, ci, len(chunks), qw,
                             H, r_scale, phi % (2 * np.pi), omega, version & 0xFFFFFFFF)
         buf[STATE_HDR.size:STATE_HDR.size + nr] = q[c0:c0 + cc].tobytes()
         buf[STATE_HDR.size + nr:] = qh[c0:c0 + cc].tobytes()
@@ -53,7 +56,7 @@ def decode(data: bytes) -> dict | None:
     if mt == T_STATE:
         if len(data) < STATE_HDR.size:
             return None
-        (_, _, _, flags, seq, fid, tc, ts, nt, nz, c0, cc, ci, cn, _, H, rs, phi, om, ver) = STATE_HDR.unpack_from(data)
+        (_, _, _, flags, seq, fid, tc, ts, nt, nz, c0, cc, ci, cn, qw, H, rs, phi, om, ver) = STATE_HDR.unpack_from(data)
         nr = cc * nz * 2
         if c0 + cc > nt or len(data) not in (STATE_HDR.size + nr, STATE_HDR.size + nr + cc * 2):
             return None
@@ -64,7 +67,7 @@ def decode(data: bytes) -> dict | None:
             hf = np.ones(cc, np.float32)
         return dict(type="state", flags=flags, seq=seq, frame_id=fid, t_capture_ns=tc, t_send_ns=ts, n_theta=nt,
                     n_z=nz, col_start=c0, col_count=cc, chunk_index=ci, chunk_count=cn, height=H, r_scale=rs,
-                    phi=phi, omega=om, version=ver, R=q.astype(np.float32) * (rs / 65535.0), hfrac=hf)
+                    phi=phi, omega=om, version=ver, wetness=qw / 65535.0, R=q.astype(np.float32) * (rs / 65535.0), hfrac=hf)
     if mt == T_ECHO and len(data) == ECHO.size:
         (_, _, _, _, seq, fid, tc, ts, tr, ta) = ECHO.unpack(data)
         return dict(type="echo", seq=seq, frame_id=fid, t_capture_ns=tc, t_send_ns=ts, t_recv_ns=tr, t_applied_ns=ta)
@@ -106,7 +109,8 @@ class Sender:
         self._last_version = -1
         self.sent = 0
 
-    def maybe_send(self, R, H, phi, omega, frame_id, t_capture_ns, version, flags=0, force=False, hfrac=None) -> bool:
+    def maybe_send(self, R, H, phi, omega, frame_id, t_capture_ns, version, flags=0, force=False, hfrac=None,
+                   wetness=0.0) -> bool:
         now = time.perf_counter()   # monotonic no Windows tem ~15 ms de resolucao
         idle = version == self._last_version and omega == 0.0
         if not force and (now - self._last < (0.5 if idle else 0.9 * self.min_dt)):
@@ -114,7 +118,7 @@ class Sender:
         self._last, self._last_version = now, version
         self.seq += 1
         for buf in encode_state(R, H, phi, omega, self.seq, frame_id, t_capture_ns, version, flags,
-                                self.r_scale, self.max_datagram, hfrac):
+                                self.r_scale, self.max_datagram, hfrac, wetness):
             stamp_send(buf, time.time_ns())
             if self.drop and random.random() < self.drop:
                 continue

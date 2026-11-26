@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+import os
 from html import escape
 from pathlib import Path
 
@@ -13,6 +14,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QFrame, QGridLayout, QHBoxL
                                QPushButton, QSizePolicy, QSlider, QSplitter, QVBoxLayout, QWidget)
 
 from .contour import EXTRACTORS
+from .net import VIEW_JPEG
 
 ACCENT = "#007788"        # cor de destaque: botoes, caixinhas marcadas e seletor de extrator
 CHECK_ICON = (Path(__file__).resolve().parents[1] / "assets" / "check.svg").as_posix()   # tique das caixinhas
@@ -146,6 +148,14 @@ class MainWindow(QMainWindow):
         self.debug.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.debug.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
         self.debug.setWordWrap(True)                  # linhas longas quebram (ver debug_html)
+        self.bview = QLabel("Aguardando o Blender…")  # vista da camera do Blender (JPEG que o receptor grava)
+        self.bview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.bview.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
+        self.bview.setStyleSheet("background:#000;color:#aaa")
+        self._bview_path = str(Path(__file__).resolve().parents[1] / "data" / VIEW_JPEG)
+        self._bview_mtime = 0.0
+        self._bview_img: np.ndarray | None = None
+        self._bview_size = QSize()
 
         left = QSplitter(Qt.Orientation.Vertical)
         if pipeline is not None:
@@ -157,9 +167,12 @@ class MainWindow(QMainWindow):
         right.setContentsMargins(0, 12, 0, 0)         # margem no topo, acima de Controles
         if pipeline is not None:
             right.addWidget(titled("Controles", self._controls(), pad=16))
+        self.bview_panel = titled("Blender", self.bview, pad=16)
+        self.bview_panel.hide()                       # aparece quando "Vista do Blender" e marcada
+        right.addWidget(self.bview_panel)
         right.addWidget(titled("Debug", self.debug, pad=16))
-        right.setSizes([250, 600])
-        right.setFixedWidth(500)                      # painel da direita sempre com 250 px
+        right.setSizes([250, 350, 600])
+        right.setFixedWidth(550)                      # painel da direita sempre com 250 px
         
         root = QSplitter(Qt.Orientation.Horizontal)
         root.setHandleWidth(4)
@@ -179,6 +192,8 @@ class MainWindow(QMainWindow):
             self.timer = QTimer(self)
             self.timer.timeout.connect(self.poll_receiver)
             self.timer.start(16)
+        self.bview_timer = QTimer(self)               # confere o JPEG do Blender (so roda com a vista ligada)
+        self.bview_timer.timeout.connect(self.poll_blender_view)
         QShortcut(QKeySequence("Q"), self, self.close)
 
     # ---------------------------------------------------------------- controles
@@ -222,6 +237,10 @@ class MainWindow(QMainWindow):
         ex.setCurrentText(self.cfg.seg.extractor)
         ex.currentTextChanged.connect(lambda v: cmd("extractor", v))
         g.addWidget(ex, 1, 1)
+        bv = QCheckBox("Vista do Blender")
+        bv.setToolTip("mostra a imagem da câmera do Blender (a cada 5 estados); desligada, o Blender não renderiza")
+        bv.toggled.connect(lambda v: (cmd("blender_view", v), self.set_blender_view(v)))
+        g.addWidget(bv, 1, 2, 1, 3)
 
         g.addWidget(QLabel("Velocidade: Cabeça ↓ Acelera · ↑ Freia"), 2, 0, 1, 3)
         lock = QCheckBox("Trava velocidade [L]")
@@ -277,6 +296,8 @@ class MainWindow(QMainWindow):
             ("estado", f"{r['state']}   {'● GRAVANDO' if r['recording'] else ''}"),
             ("calib", f"{r['calib_step']}"),
             ("FPS", f"{r['fps']:5.1f}   mãos {r['n_hands']}"),
+            ("latência", f"captura→processado {r['lat_proc']:5.1f} ms   captura→Blender "
+                         + (f"{r['lat_blender']:5.1f} ms" if r['lat_blender'] == r['lat_blender'] else "—")),
             ("ms", f"mãos {ms['hands']:5.1f}  rosto {ms['face']:5.1f}  contorno {ms['contour']:5.1f}  "
                    f"sim {ms['sim']:5.1f}  total {ms['total']:5.1f}"),
             ("torno", f"{r['rpm']:5.1f} rpm  ({r['speed_status']})   cabeça {r['pitch_delta']:+5.1f}° "
@@ -286,6 +307,28 @@ class MainWindow(QMainWindow):
             ("extrator", f"{r['extractor']}   idade máscara {r['seg_age']}   SAM {r['seg_ms']:.0f} ms"),
             ("msg", f"{r['message']}"),
         ]))
+
+    def set_blender_view(self, on: bool):
+        self.bview_panel.setVisible(on)
+        if on:
+            self._bview_mtime = 0.0
+            self.bview_timer.start(50)
+        else:
+            self.bview_timer.stop()
+
+    def poll_blender_view(self):
+        try:
+            mt = os.stat(self._bview_path).st_mtime
+        except OSError:
+            return                                    # Blender ainda nao gravou
+        size = self.bview.size()
+        if mt == self._bview_mtime and size == self._bview_size:
+            return                                    # nada novo: nao gasta CPU redesenhando
+        img = cv2.imread(self._bview_path) if mt != self._bview_mtime else self._bview_img
+        if img is None:                               # o Blender troca o arquivo de uma vez (os.replace)
+            return
+        self._bview_mtime, self._bview_img, self._bview_size = mt, img, size
+        self.bview.setPixmap(to_pixmap(img, size))
 
     def poll_receiver(self):
         if self.rx.poll() and self.rx.R is not None:
