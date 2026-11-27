@@ -99,7 +99,7 @@ class Sender:
         if echo_port:
             try:
                 self.echo = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                self.echo.bind(("127.0.0.1", echo_port))
+                self.echo.bind(("0.0.0.0", echo_port))   # o eco pode vir de um Blender em outra maquina
                 self.echo.setblocking(False)
             except OSError:
                 self.echo = None

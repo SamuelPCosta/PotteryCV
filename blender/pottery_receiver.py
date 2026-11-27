@@ -24,7 +24,8 @@ except ImportError:
 
 # ---------------------------------------------------------------- configuracao
 PORT = 9000
-ECHO_TO = ("127.0.0.1", 9001)
+LISTEN = "0.0.0.0"               # escuta a rede toda: o Python pode estar em outra maquina
+ECHO_PORT = 9001                 # eco volta para o IP de quem mandou o estado, nessa porta (None = sem eco)
 OBJ_NAME = "PotteryVase"
 N_THETA, N_Z = 96, 64            # tem que bater com o Python
 TIMER_S = 1 / 60
@@ -142,7 +143,8 @@ def _ensure_object():
 class _Rx:
     def __init__(self):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.bind(("127.0.0.1", PORT))
+        self.sock.bind((LISTEN, PORT))
+        self.sender_ip = None                        # IP de onde veio o ultimo estado (para o eco)
         self.sock.setblocking(False)
         self.obj = _ensure_object()
         self.R = np.full((N_THETA, N_Z), R0_INIT, np.float32)
@@ -170,12 +172,15 @@ class _Rx:
         latest = {}
         while True:
             try:
-                data, _ = self.sock.recvfrom(65507)
+                data, addr = self.sock.recvfrom(65507)
             except (BlockingIOError, ConnectionResetError, OSError):
                 break
             d = decode_state(data)
             if d is None:
                 continue
+            if addr[0] != self.sender_ip:
+                _log(f"[pottery] recebendo estados de {addr[0]}")
+                self.sender_ip = addr[0]
             d["t_recv_ns"] = time.time_ns()
             ci = d["chunk_index"]
             if ci not in latest or seq_newer(d["seq"], latest[ci]["seq"]):
@@ -239,10 +244,10 @@ class _Rx:
         t_applied = time.time_ns()
         self.packets += 1
         self.lat.append((t_applied - any_d["t_capture_ns"]) / 1e6)
-        if ECHO_TO:
+        if ECHO_PORT and self.sender_ip:
             try:
                 self.sock.sendto(ECHO.pack(MAGIC, 1, 3, 0, any_d["seq"], any_d["frame_id"], any_d["t_capture_ns"],
-                                           any_d["t_send_ns"], any_d["t_recv_ns"], t_applied), ECHO_TO)
+                                           any_d["t_send_ns"], any_d["t_recv_ns"], t_applied), (self.sender_ip, ECHO_PORT))
             except OSError:
                 pass
         now = time.monotonic()
