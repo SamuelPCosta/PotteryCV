@@ -32,6 +32,10 @@ _(referências)_
 
 ### Instalação (Windows)
 
+**Jeito rápido:** dois cliques em `rodar.bat`. Na primeira vez ele instala o [uv](https://docs.astral.sh/uv/) (Python + bibliotecas, sem admin), baixa os modelos do MediaPipe e cria o `.venv`; depois só confere e abre. Precisa de internet na primeira vez.
+
+Ou na mão:
+
 Python 3.12 ou mais novo. No terminal (`cmd`), dentro da pasta do projeto:
 
 ```
