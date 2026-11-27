@@ -13,6 +13,14 @@ import numpy as np
 _BACKENDS = {"msmf": cv2.CAP_MSMF, "dshow": cv2.CAP_DSHOW, "any": cv2.CAP_ANY}
 
 
+def imread(path, flags=cv2.IMREAD_COLOR):
+    """cv2.imread nao abre caminhos com acento no Windows (ex.: 'Area de Trabalho'); le os bytes e decodifica."""
+    try:
+        return cv2.imdecode(np.fromfile(str(path), np.uint8), flags)
+    except (OSError, ValueError, cv2.error):
+        return None
+
+
 @dataclass
 class Frame:
     id: int

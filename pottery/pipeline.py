@@ -13,7 +13,7 @@ from PySide6.QtCore import QThread, Signal
 
 from . import contour as ct
 from .calibration import CalibProfile, Calibrator
-from .capture import Camera, Recorder, Replay
+from .capture import Camera, Recorder, Replay, imread
 from .net import F_CALIB, F_PAUSED, F_RESET, F_VIEW, Sender
 from .speed import SpeedController
 from .tracking import HandTracker, HeadObs, HeadTracker, assign_edges
@@ -47,7 +47,7 @@ class Pipeline(QThread):
         
         from pathlib import Path
         arrow = Path(__file__).resolve().parents[1] / "assets" / "wheel_arrow.png"
-        img = cv2.imread(str(arrow), cv2.IMREAD_UNCHANGED)
+        img = imread(arrow, cv2.IMREAD_UNCHANGED)
         if img is None:
             img = np.full((200, 200, 4), 255, np.uint8)
         elif img.ndim == 2:

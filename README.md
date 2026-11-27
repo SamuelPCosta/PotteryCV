@@ -32,7 +32,7 @@ _(referências)_
 
 ### Instalação (Windows)
 
-**Jeito rápido:** dois cliques em `rodar.bat`. Na primeira vez ele instala o [uv](https://docs.astral.sh/uv/) (Python + bibliotecas, sem admin), baixa os modelos do MediaPipe e cria o `.venv`; depois só confere e abre. Precisa de internet na primeira vez.
+**Jeito rápido (portátil):** dois cliques em `rodar.bat`. Na primeira vez (com internet) ele baixa um Python portátil para `python\` (via [uv](https://docs.astral.sh/uv/), sem admin), instala as bibliotecas nele e baixa os modelos do MediaPipe. Depois a pasta inteira (~1,2 GB) roda em qualquer Windows 64 bits **sem instalar nada e sem internet**: copie a pasta toda (pendrive, Drive) e dê dois cliques no `rodar.bat`. Se o `requirements.txt` mudar, ele reinstala sozinho (aí precisa de internet).
 
 Ou na mão:
 

@@ -15,6 +15,7 @@ from PySide6.QtGui import QFont, QImage, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QMainWindow,
                                QPushButton, QSizePolicy, QSlider, QSplitter, QVBoxLayout, QWidget)
 
+from .capture import imread
 from .contour import EXTRACTORS
 from .net import VIEW_JPEG
 
@@ -247,7 +248,7 @@ class MainWindow(QMainWindow):
         w.setStyleSheet(
             "QCheckBox::indicator { width: 14px; height: 14px; border: 1px solid #666;"
             " border-radius: 3px; background: #222; }"
-            f"QCheckBox::indicator:checked {{ background: {ACCENT}; border-color: {ACCENT}; image: url({CHECK_ICON}); }}"
+            f"QCheckBox::indicator:checked {{ background: {ACCENT}; border-color: {ACCENT}; image: url(\"{CHECK_ICON}\"); }}"
             f"QComboBox {{ background: {ACCENT}; color: #fff; border-radius: 4px; padding: 4px 8px; }}"
             f"QComboBox QAbstractItemView {{ background: #222; color: #fff; selection-background-color: {ACCENT}; }}")
         g = QGridLayout(w)
@@ -264,7 +265,6 @@ class MainWindow(QMainWindow):
             return b
 
         self.b_rec = button("Gravar sessão", "record", True)
-        self.setStyleSheet("background:#aaa;color:#111")
         g.addWidget(button("Calibrar [C]", "calibrate"), 0, 0)
         g.addWidget(button("Reset vaso [R]", "reset"), 0, 1)
         g.addWidget(button("Desfazer [Ctrl+Z]", "undo"), 0, 2)
@@ -376,7 +376,7 @@ class MainWindow(QMainWindow):
         size = self.bview.size()
         if mt == self._bview_mtime and size == self._bview_size:
             return                                    # nada novo: nao gasta CPU redesenhando
-        img = cv2.imread(self._bview_path) if mt != self._bview_mtime else self._bview_img
+        img = imread(self._bview_path) if mt != self._bview_mtime else self._bview_img
         if img is None:                               # o Blender troca o arquivo de uma vez (os.replace)
             return
         self._bview_mtime, self._bview_img, self._bview_size = mt, img, size
