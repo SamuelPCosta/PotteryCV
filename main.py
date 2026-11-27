@@ -9,6 +9,8 @@ import argparse
 import sys
 
 from pottery.config import load_config  # antes do Qt (ver pottery/__init__.py)
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication
 
 
@@ -26,6 +28,16 @@ def main():
     if a.no_net:
         cfg.net.enabled = False
     app = QApplication(sys.argv)
+    app.setStyle("Fusion")                                   # mesmo visual em qualquer Windows
+    app.styleHints().setColorScheme(Qt.ColorScheme.Dark)     # escuro mesmo com o Windows no modo claro
+    pal = QPalette()                                         # e paleta escura explicita (caso o pedido acima falhe)
+    for role, c in ((QPalette.ColorRole.Window, "#111"), (QPalette.ColorRole.Base, "#1a1a1a"),
+                    (QPalette.ColorRole.AlternateBase, "#222"), (QPalette.ColorRole.Button, "#222"),
+                    (QPalette.ColorRole.WindowText, "#aaa"), (QPalette.ColorRole.Text, "#ddd"),
+                    (QPalette.ColorRole.ButtonText, "#ddd"), (QPalette.ColorRole.ToolTipBase, "#222"),
+                    (QPalette.ColorRole.ToolTipText, "#ddd")):
+        pal.setColor(role, QColor(c))
+    app.setPalette(pal)
     from pottery.gui import MainWindow
     if a.viewer:
         from pottery.net import Receiver
