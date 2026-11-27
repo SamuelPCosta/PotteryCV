@@ -11,15 +11,19 @@ rem pronto = Python portatil existe e as bibliotecas instaladas batem com o requ
 if exist "%PY%" if exist python\requirements.txt fc /b requirements.txt python\requirements.txt >nul 2>nul && goto modelos
 
 call :uv || goto erro
+rem o uv instala numa pasta temporaria do Windows (NTFS) e depois copiamos: em exFAT (pendrive, HD externo)
+rem ele falha ao criar o atalho de pasta da versao ("Failed to create Python minor version link directory")
+set "TMPPY=%TEMP%\pottery_python"
 if not exist "%PY%" (
     echo [1/3] Baixando o Python portatil...
-    uv python install 3.12 --install-dir "%~dp0python_tmp" --no-bin --no-registry || goto erro
-    for /d %%d in ("%~dp0python_tmp\cpython-3.12.*") do move "%%d" "%~dp0python" >nul
-    rd /s /q "%~dp0python_tmp" 2>nul
+    rd /s /q "%TMPPY%" 2>nul
+    uv python install 3.12 --install-dir "%TMPPY%" --no-bin --no-registry || goto erro
+    for /d %%d in ("%TMPPY%\cpython-3.12.*") do robocopy "%%d" "%~dp0python" /e /move /njh /njs /nfl /ndl >nul
+    rd /s /q "%TMPPY%" 2>nul
 )
 if not exist "%PY%" goto erro
 echo [2/3] Instalando as bibliotecas no Python portatil...
-uv pip install --python "%PY%" --break-system-packages -r requirements.txt || goto erro
+uv pip install --python "%PY%" --break-system-packages --link-mode=copy -r requirements.txt || goto erro
 copy /y requirements.txt python\requirements.txt >nul
 
 :modelos
